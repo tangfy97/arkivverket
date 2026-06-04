@@ -27,7 +27,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private let topBar = NSVisualEffectView()
     private let modeControl = NSSegmentedControl(labels: ["Split", "Tabbed", "Fullscreen"], trackingMode: .selectOne, target: nil, action: nil)
     private let openButton = RoundedButton(title: "Choose Library", target: nil, action: nil)
-    private let densityButton = IconButton(symbol: "square.grid.fill", tooltip: "Grid density")
+    private let densityButton = IconButton(symbol: "square.grid.3x3.fill", tooltip: "Grid density")
     private let slideshowButton = IconButton(symbol: "play.fill", tooltip: "Slideshow")
     private let profileButton = IconButton(symbol: "text.alignleft", tooltip: "Profile")
     private let searchField = NSSearchField()
@@ -592,7 +592,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         case .comfortable:
             return "square.grid.2x2"
         case .spacious:
-            return "square.grid.fill"
+            return "square.grid.3x3.fill"
         }
     }
 
