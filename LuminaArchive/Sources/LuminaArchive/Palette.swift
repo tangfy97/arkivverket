@@ -1,7 +1,4 @@
 import AppKit
-import ImageIO
-import UniformTypeIdentifiers
-import WebKit
 
 enum Palette {
     static let bg = NSColor(srgbRed: 0.957, green: 0.953, blue: 0.941, alpha: 1)

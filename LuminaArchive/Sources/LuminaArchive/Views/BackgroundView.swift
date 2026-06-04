@@ -1,7 +1,4 @@
 import AppKit
-import ImageIO
-import UniformTypeIdentifiers
-import WebKit
 
 final class BackgroundView: NSView {
     var color: NSColor = Palette.bg {

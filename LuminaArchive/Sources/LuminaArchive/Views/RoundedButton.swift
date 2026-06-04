@@ -1,7 +1,4 @@
 import AppKit
-import ImageIO
-import UniformTypeIdentifiers
-import WebKit
 
 final class RoundedButton: NSButton {
     var fillColor: NSColor = .clear { didSet { needsDisplay = true } }

@@ -1,7 +1,5 @@
 import AppKit
 import ImageIO
-import UniformTypeIdentifiers
-import WebKit
 
 final class ImageCache {
     static let shared = ImageCache()

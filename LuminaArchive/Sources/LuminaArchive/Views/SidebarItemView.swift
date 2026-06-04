@@ -1,7 +1,4 @@
 import AppKit
-import ImageIO
-import UniformTypeIdentifiers
-import WebKit
 
 final class SidebarItemView: NSTableCellView {
     let title = NSTextField(labelWithString: "")

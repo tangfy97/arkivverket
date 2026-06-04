@@ -1,7 +1,4 @@
-import AppKit
-import ImageIO
-import UniformTypeIdentifiers
-import WebKit
+import Foundation
 
 enum MarkdownHTMLRenderer {
     static func render(_ markdown: String) -> String {

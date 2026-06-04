@@ -1,7 +1,5 @@
-import AppKit
-import ImageIO
-import UniformTypeIdentifiers
-import WebKit
+import CoreGraphics
+import Foundation
 
 enum ViewMode: Int {
     case split

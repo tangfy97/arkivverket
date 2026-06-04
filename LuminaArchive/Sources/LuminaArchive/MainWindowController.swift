@@ -1,6 +1,4 @@
 import AppKit
-import ImageIO
-import UniformTypeIdentifiers
 import WebKit
 
 final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollectionViewDataSource, NSCollectionViewDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate, NSSearchFieldDelegate {
@@ -57,9 +55,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private let profileDivider = NSView()
     private let statusLabel = NSTextField(labelWithString: "")
     private let pathLabel = NSTextField(labelWithString: "")
-    private let titleLabel = NSTextField(labelWithString: "Lumina Archive")
-    private let countLabel = NSTextField(labelWithString: "")
-    private let emptyLabel = NSTextField(labelWithString: "Open a generated arkiv folder to begin.")
+    private let emptyLabel = NSTextField(labelWithString: "Drop a folder here, or choose one below")
 
     convenience init() {
         let window = NSWindow(
@@ -126,20 +122,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         topBar.state = .active
         rootView.addSubview(topBar)
 
-        titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        titleLabel.textColor = Palette.secondary
-        rootView.addSubview(titleLabel)
-
         modeControl.target = self
         modeControl.action = #selector(modeChanged)
         modeControl.selectedSegment = 0
         modeControl.segmentStyle = .rounded
+        modeControl.font = .systemFont(ofSize: 11, weight: .regular)
         rootView.addSubview(modeControl)
 
         openButton.target = self
         openButton.action = #selector(openFolder)
-        openButton.fillColor = Palette.surface
-        openButton.textColor = Palette.text
+        openButton.fillColor = Palette.accent
+        openButton.textColor = .white
+        openButton.activeTextColor = .white
 
         searchField.placeholderString = "Search images"
         searchField.delegate = self
@@ -330,15 +324,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         guard let content = window?.contentView else { return }
         let bounds = content.bounds
         let isViewer = viewMode == .fullscreen
-        let topHeight: CGFloat = isViewer ? 0 : 48
+        let topHeight: CGFloat = isViewer ? 0 : 44
         let statusHeight: CGFloat = isViewer ? 0 : 26
         let sidebarWidth: CGFloat = viewMode == .fullscreen ? 0 : min(270, max(220, bounds.width * 0.18))
         let profileWidth = currentProfileWidth(for: bounds)
         let gap: CGFloat = 0
 
         topBar.frame = NSRect(x: 0, y: bounds.height - topHeight, width: bounds.width, height: topHeight)
-        titleLabel.frame = NSRect(x: 94, y: bounds.height - 31, width: min(260, max(120, bounds.width * 0.24)), height: 18)
-        modeControl.frame = NSRect(x: (bounds.width - 285) / 2, y: bounds.height - 36, width: 285, height: 26)
+        modeControl.frame = NSRect(x: (bounds.width - 285) / 2, y: bounds.height - 35, width: 285, height: 26)
         openButton.frame = .zero
 
         statusLabel.frame = NSRect(x: 14, y: 5, width: bounds.width * 0.45, height: 16)
@@ -479,7 +472,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         loadSelectedModel()
         updateContentVisibility()
         libraryPathLabel.stringValue = rootURL.lastPathComponent
-        pathLabel.stringValue = displayURL.path
         window?.title = "Lumina Archive - \(rootURL.lastPathComponent)"
     }
 
@@ -574,7 +566,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let modelName = currentModel()?.name ?? "No archive"
         let selected = filteredImages.isEmpty ? 0 : selectedImageIndex + 1
         let totalBytes = filteredImages.reduce(Int64(0)) { $0 + $1.byteCount }
-        countLabel.stringValue = "\(filteredImages.count) items"
         statusLabel.stringValue = "\(modelName)  ·  \(selected) of \(filteredImages.count)"
         pathLabel.stringValue = ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
         updateViewerLabels()
@@ -623,7 +614,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         sidebarDivider.isHidden = !hasArchive || isViewer
         profileDivider.isHidden = !hasArchive || isViewer || profileWidth == 0
         topBar.isHidden = isViewer
-        titleLabel.isHidden = isViewer
         modeControl.isHidden = isViewer
         openButton.isHidden = hasArchive || isViewer
         statusLabel.isHidden = isViewer

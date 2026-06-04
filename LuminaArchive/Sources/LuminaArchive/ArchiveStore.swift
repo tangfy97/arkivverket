@@ -1,7 +1,4 @@
-import AppKit
-import ImageIO
-import UniformTypeIdentifiers
-import WebKit
+import Foundation
 
 final class FolderNode: NSObject {
     let url: URL
