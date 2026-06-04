@@ -351,7 +351,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         toolbarStrip.frame = NSRect(x: mainX, y: toolbarY, width: max(0, mainWidth), height: toolbarHeight)
 
         let buttonGap: CGFloat = 10
-        let densityW: CGFloat = 126
+        let densityW: CGFloat = 150
         let slideshowW: CGFloat = 116
         let profileW: CGFloat = 82
         let buttonsWidth = densityW + slideshowW + profileW + buttonGap * 2
@@ -565,7 +565,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         profileButton.isActive = profileVisible
         viewerProfileButton.isActive = viewerProfileVisible
         slideshowButton.isActive = slideshowTimer != nil
-        densityButton.title = density.title
+        densityButton.title = "Grid: \(density.title)"
         densityButton.needsDisplay = true
         slideshowButton.needsDisplay = true
         viewerProfileButton.needsDisplay = true
