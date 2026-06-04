@@ -1,5 +1,9 @@
 /build
 .DS_Store
+*.DS_Store
 project.xcworkspace/
 xcuserdata/
-
+dist/
+.build/
+LuminaArchive/.build/
+LuminaArchive/.swiftpm/

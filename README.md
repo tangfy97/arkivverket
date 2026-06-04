@@ -1,39 +1,55 @@
-# Phoenix Slides
+# Lumina Archive
 
-Official web site: <https://blyt.net/phxslides/>
+Lumina Archive is a fast native macOS viewer for results generated under `documents/arkiv`.
+It keeps the Phoenix Slides idea of quick local image browsing, then adds a rendered
+`profile.md` pane for each model folder.
 
-Phoenix Slides aims to be the fastest way to browse and view the image files
-on your disk. Features include the following:
+## Layout
 
-- Fast thumbnailing. Uses embedded EXIF (for jpeg and heic) or JPEG (for raw) previews when appropriate. Otherwise uses macOS's Image I/O framework to scale down images quickly.
-- Slideshows (full screen or in a window) with random, loop, and/or auto-advance options
-- Special support for sorting files by EXIF (creation) date
-- Support for animated GIF and WebP files
-- Support for viewing EXIF metadata
+- `PhoenixSlidesLegacy/` preserves the original Phoenix Slides source.
+- `LuminaArchive/` contains the new Swift native macOS application.
+- `scripts/build_app.sh` builds a standalone app bundle into `dist/`.
 
-And of course, it is open source! After a major code overhaul the source should be
-fairly readable now. It's not Swift (this app was started in 2005 when macOS was
-called OS X 10.3 and the system frameworks still had very basic bugs in them),
-but it's modern!
+## Expected Folder Shape
 
-Enjoy!
+Open either a root archive folder containing model directories, or one model folder directly:
 
-## Localization
+```text
+documents/arkiv/
+  Sofia Jaspers/
+    profile.md
+    image-001.jpg
+    image-002.jpg
+```
 
-If anyone wants to help translate to any currently supported or new languages,
-let me know. Lately I've been just plugging new strings into google translate
-and massaging those results. (I don't actually speak Italian!)
+The scanner treats any folder with `profile.md` or image files as a model archive.
 
-## Compiling
+## Current Controls
 
-The master branch will generally require the latest version of Xcode.
+- Open a root folder with **Open Folder** or pass it as a launch argument.
+- Use the left folder browser to move between model folders.
+- Use Left/Right or Space to move through images.
+- Press Return to enter fullscreen image viewing.
+- Press Escape to leave fullscreen or stop a slideshow.
+- Press Home/End to jump to the first/last image.
+- Toggle the Profile pane to show or hide the rendered `profile.md`.
 
-Commit 7d0cc7e should compile for 10.6+. https://github.com/gobbledegook/creevey/releases/tag/v1.3.1i
+For smoke testing the image viewer directly:
 
-Branch xcode326 will compile a universal binary with PPC support but requires Xcode 3.2.6. https://github.com/gobbledegook/creevey/tree/xcode326
+```bash
+open -n "dist/Lumina Archive.app" --args --viewer /path/to/documents/arkiv
+open -n "dist/Lumina Archive.app" --args --viewer --viewer-profile /path/to/documents/arkiv
+```
 
-## Etymology
+## Build
 
-`creevey` was the code name for Phoenix Slides when I first started developing it
-and code names were cool.
-Colin Creevey is the kid in Harry Potter who keeps taking pictures.
+```bash
+scripts/build_app.sh
+open "dist/Lumina Archive.app"
+```
+
+You can also pass a folder path while developing:
+
+```bash
+swift run --package-path LuminaArchive LuminaArchive /path/to/documents/arkiv
+```
