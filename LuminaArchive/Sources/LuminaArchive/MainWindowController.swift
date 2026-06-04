@@ -254,6 +254,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         viewerPrevButton.action = #selector(previousImage)
         viewerNextButton.target = self
         viewerNextButton.action = #selector(nextImage)
+        viewerPrevButton.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "Previous")?
+            .withSymbolConfiguration(.init(pointSize: 22, weight: .semibold))
+        viewerPrevButton.title = ""
+        viewerNextButton.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Next")?
+            .withSymbolConfiguration(.init(pointSize: 22, weight: .semibold))
+        viewerNextButton.title = ""
 
         for button in [viewerExitButton, viewerProfileButton, viewerPrevButton, viewerNextButton] {
             button.fillColor = NSColor.black.withAlphaComponent(0.35)

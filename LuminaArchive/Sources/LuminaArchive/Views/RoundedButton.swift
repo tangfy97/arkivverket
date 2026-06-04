@@ -31,9 +31,23 @@ final class RoundedButton: NSButton {
         path.lineWidth = 1
         path.stroke()
 
+        let foregroundColor = isActive ? activeTextColor : textColor
+        if let image {
+            let drawImage = image.withSymbolConfiguration(.init(paletteColors: [foregroundColor])) ?? image
+            let size = drawImage.size
+            let imageRect = NSRect(
+                x: (bounds.width - size.width) / 2,
+                y: (bounds.height - size.height) / 2,
+                width: size.width,
+                height: size.height
+            )
+            drawImage.draw(in: imageRect)
+            return
+        }
+
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font ?? NSFont.systemFont(ofSize: 12, weight: .medium),
-            .foregroundColor: isActive ? activeTextColor : textColor
+            .foregroundColor: foregroundColor
         ]
         let size = title.size(withAttributes: attributes)
         title.draw(
