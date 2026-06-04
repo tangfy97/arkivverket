@@ -764,7 +764,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     }
 
     private func updateViewerLabels() {
-        guard let model = currentModel(), let image = currentImage() else {
+        guard let model = currentModel(), currentImage() != nil else {
             viewerTitleLabel.stringValue = ""
             viewerMetaLabel.stringValue = ""
             viewerFileLabel.stringValue = ""
@@ -772,7 +772,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         }
         viewerTitleLabel.stringValue = model.name
         viewerMetaLabel.stringValue = "\(selectedImageIndex + 1) of \(filteredImages.count)"
-        viewerFileLabel.stringValue = image.url.lastPathComponent
+        viewerFileLabel.stringValue = "\(selectedImageIndex + 1)  /  \(filteredImages.count)"
     }
 
     func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
