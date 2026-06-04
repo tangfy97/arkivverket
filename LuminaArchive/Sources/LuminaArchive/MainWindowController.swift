@@ -17,7 +17,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private var selectedModelIndex = 0
     private var selectedImageIndex = 0
     private var viewMode: ViewMode = .split
-    private var density: Density = .comfortable
+    private var density: Density = .spacious
     private var profileVisible = true
     private var viewerProfileVisible = false
     private var slideshowTimer: Timer?
@@ -29,7 +29,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private let topBar = NSVisualEffectView()
     private let modeControl = NSSegmentedControl(labels: ["Split", "Tabbed", "Fullscreen"], trackingMode: .selectOne, target: nil, action: nil)
     private let openButton = RoundedButton(title: "Choose Library", target: nil, action: nil)
-    private let densityButton = RoundedButton(title: "Comfortable", target: nil, action: nil)
+    private let densityButton = RoundedButton(title: "Spacious", target: nil, action: nil)
     private let slideshowButton = RoundedButton(title: "Slideshow", target: nil, action: nil)
     private let profileButton = RoundedButton(title: "Profile", target: nil, action: nil)
     private let searchField = NSSearchField()
@@ -212,9 +212,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     private func setupCollection() {
         let layout = NSCollectionViewFlowLayout()
-        layout.minimumInteritemSpacing = 18
-        layout.minimumLineSpacing = 22
-        layout.sectionInset = NSEdgeInsets(top: 22, left: 22, bottom: 22, right: 22)
+        layout.minimumInteritemSpacing = 24
+        layout.minimumLineSpacing = 28
+        layout.sectionInset = NSEdgeInsets(top: 28, left: 28, bottom: 28, right: 28)
         layout.itemSize = NSSize(width: density.itemSide, height: density.itemSide + 26)
 
         collectionView.collectionViewLayout = layout
