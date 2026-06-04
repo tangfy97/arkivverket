@@ -42,8 +42,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private let collectionView = DoubleClickCollectionView()
     private let collectionScroll = NSScrollView()
     private let previewImageView = NSImageView()
-    private let viewerTopBar = NSVisualEffectView()
-    private let viewerBottomBar = NSVisualEffectView()
+    private let viewerTopBar = NSView()
+    private let viewerBottomBar = NSView()
+    private let viewerTopGradient = CAGradientLayer()
+    private let viewerBottomGradient = CAGradientLayer()
     private let viewerTitleLabel = NSTextField(labelWithString: "")
     private let viewerMetaLabel = NSTextField(labelWithString: "")
     private let viewerFileLabel = NSTextField(labelWithString: "")
@@ -234,19 +236,26 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     }
 
     private func setupViewerOverlay() {
-        for bar in [viewerTopBar, viewerBottomBar] {
-            bar.material = .hudWindow
-            bar.blendingMode = .withinWindow
-            bar.state = .active
-            rootView.addSubview(bar)
-        }
+        viewerTopBar.wantsLayer = true
+        viewerTopGradient.colors = [NSColor.black.withAlphaComponent(0.55).cgColor, NSColor.clear.cgColor]
+        viewerTopGradient.startPoint = CGPoint(x: 0.5, y: 1)
+        viewerTopGradient.endPoint = CGPoint(x: 0.5, y: 0)
+        viewerTopBar.layer?.addSublayer(viewerTopGradient)
+        rootView.addSubview(viewerTopBar)
+
+        viewerBottomBar.wantsLayer = true
+        viewerBottomGradient.colors = [NSColor.clear.cgColor, NSColor.black.withAlphaComponent(0.55).cgColor]
+        viewerBottomGradient.startPoint = CGPoint(x: 0.5, y: 1)
+        viewerBottomGradient.endPoint = CGPoint(x: 0.5, y: 0)
+        viewerBottomBar.layer?.addSublayer(viewerBottomGradient)
+        rootView.addSubview(viewerBottomBar)
 
         viewerTitleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
         viewerTitleLabel.textColor = .white
         viewerMetaLabel.font = .systemFont(ofSize: 11, weight: .medium)
         viewerMetaLabel.textColor = NSColor.white.withAlphaComponent(0.65)
-        viewerFileLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        viewerFileLabel.textColor = NSColor.white.withAlphaComponent(0.78)
+        viewerFileLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .light)
+        viewerFileLabel.textColor = NSColor.white.withAlphaComponent(0.60)
         viewerFileLabel.alignment = .center
 
         viewerExitButton.target = self
@@ -270,6 +279,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
             button.activeFillColor = Palette.accent
             button.activeTextColor = .white
             rootView.addSubview(button)
+        }
+        for button in [viewerPrevButton, viewerNextButton] {
+            button.fillColor = NSColor.white.withAlphaComponent(0.10)
+            button.activeFillColor = NSColor.white.withAlphaComponent(0.22)
         }
 
         rootView.addSubview(viewerTitleLabel)
@@ -398,13 +411,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let viewerWidth = bounds.width - profileWidth
         viewerTopBar.frame = isViewer ? NSRect(x: 0, y: bounds.height - 56, width: viewerWidth, height: 56) : .zero
         viewerBottomBar.frame = isViewer ? NSRect(x: 0, y: 0, width: viewerWidth, height: 46) : .zero
+        viewerTopGradient.frame = viewerTopBar.bounds
+        viewerBottomGradient.frame = viewerBottomBar.bounds
         viewerTitleLabel.frame = isViewer ? NSRect(x: 28, y: bounds.height - 32, width: max(160, viewerWidth * 0.40), height: 18) : .zero
         viewerMetaLabel.frame = isViewer ? NSRect(x: 28, y: bounds.height - 49, width: max(160, viewerWidth * 0.40), height: 14) : .zero
 
         viewerExitButton.frame = isViewer ? NSRect(x: viewerWidth - 80, y: bounds.height - 42, width: 56, height: 30) : .zero
         viewerProfileButton.frame = isViewer ? NSRect(x: viewerWidth - 176, y: bounds.height - 42, width: 84, height: 30) : .zero
-        viewerPrevButton.frame = isViewer ? NSRect(x: 28, y: bounds.midY - 26, width: 52, height: 52) : .zero
-        viewerNextButton.frame = isViewer ? NSRect(x: viewerWidth - 80, y: bounds.midY - 26, width: 52, height: 52) : .zero
+        viewerPrevButton.frame = isViewer ? NSRect(x: 36, y: bounds.midY - 24, width: 48, height: 48) : .zero
+        viewerNextButton.frame = isViewer ? NSRect(x: viewerWidth - 84, y: bounds.midY - 24, width: 48, height: 48) : .zero
         viewerFileLabel.frame = isViewer ? NSRect(x: 120, y: 14, width: max(180, viewerWidth - 240), height: 18) : .zero
     }
 

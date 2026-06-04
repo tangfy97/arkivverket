@@ -24,7 +24,8 @@ final class RoundedButton: NSButton {
 
     override func draw(_ dirtyRect: NSRect) {
         let rect = bounds.insetBy(dx: 1, dy: 1)
-        let path = NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7)
+        let radius = rect.height / 2
+        let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
         (isActive ? activeFillColor : fillColor).setFill()
         path.fill()
         Palette.border.setStroke()
