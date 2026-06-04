@@ -39,9 +39,9 @@ final class ImageCollectionItem: NSCollectionViewItem {
         label.frame = NSRect(x: 4, y: view.bounds.height - labelHeight - 2, width: view.bounds.width - 8, height: labelHeight)
     }
 
-    func configure(asset: ImageAsset, side: CGFloat, isCurrent: Bool) {
+    func configure(asset: ImageAsset, index: Int, side: CGFloat, isCurrent: Bool) {
         representedURL = asset.url
-        label.stringValue = asset.name
+        label.stringValue = String(format: "%03d", index + 1)
         thumbImageView.image = nil
         selectedAccent = isCurrent
         (view as? ThumbnailCellView)?.isSelected = isCurrent

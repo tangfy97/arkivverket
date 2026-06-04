@@ -735,7 +735,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
         let item = collectionView.makeItem(withIdentifier: ImageCollectionItem.identifier, for: indexPath)
         guard let imageItem = item as? ImageCollectionItem else { return item }
-        imageItem.configure(asset: filteredImages[indexPath.item], side: density.itemSide, isCurrent: indexPath.item == selectedImageIndex)
+        imageItem.configure(asset: filteredImages[indexPath.item], index: indexPath.item, side: density.itemSide, isCurrent: indexPath.item == selectedImageIndex)
         return imageItem
     }
 
