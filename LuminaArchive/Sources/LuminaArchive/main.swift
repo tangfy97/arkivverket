@@ -1,0 +1,1617 @@
+import AppKit
+import ImageIO
+import UniformTypeIdentifiers
+import WebKit
+
+private enum Palette {
+    static let bg = NSColor(calibratedRed: 0.973, green: 0.969, blue: 0.953, alpha: 1)
+    static let surface = NSColor.white
+    static let elevated = NSColor(calibratedRed: 0.980, green: 0.976, blue: 0.965, alpha: 1)
+    static let hover = NSColor(calibratedRed: 0.941, green: 0.937, blue: 0.929, alpha: 1)
+    static let accent = NSColor(calibratedRed: 0.357, green: 0.549, blue: 0.541, alpha: 1)
+    static let text = NSColor(calibratedWhite: 0.20, alpha: 1)
+    static let secondary = NSColor(calibratedWhite: 0.58, alpha: 1)
+    static let border = NSColor(calibratedWhite: 0.0, alpha: 0.07)
+    static let dark = NSColor(calibratedWhite: 0.04, alpha: 1)
+}
+
+private enum ViewMode: Int {
+    case split
+    case tabbed
+    case fullscreen
+}
+
+private enum Density: Int {
+    case compact
+    case comfortable
+    case spacious
+
+    var itemSide: CGFloat {
+        switch self {
+        case .compact: 118
+        case .comfortable: 162
+        case .spacious: 220
+        }
+    }
+
+    var next: Density {
+        switch self {
+        case .compact: .comfortable
+        case .comfortable: .spacious
+        case .spacious: .compact
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .compact: "Compact"
+        case .comfortable: "Comfortable"
+        case .spacious: "Spacious"
+        }
+    }
+}
+
+private struct ImageAsset: Hashable {
+    let url: URL
+    let name: String
+    let byteCount: Int64
+}
+
+private struct ModelFolder: Hashable {
+    let url: URL
+    let name: String
+    let profileURL: URL?
+    let images: [ImageAsset]
+}
+
+private final class FolderNode: NSObject {
+    let url: URL
+    weak var parent: FolderNode?
+    private(set) var children: [FolderNode] = []
+    private var didLoadChildren = false
+
+    init(url: URL, parent: FolderNode? = nil) {
+        self.url = url.standardizedFileURL
+        self.parent = parent
+    }
+
+    var name: String {
+        url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent
+    }
+
+    func loadChildren() {
+        guard !didLoadChildren else { return }
+        didLoadChildren = true
+        guard let items = try? FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            children = []
+            return
+        }
+
+        children = items.compactMap { childURL in
+            let values = try? childURL.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+            guard values?.isDirectory == true, values?.isPackage != true else { return nil }
+            return FolderNode(url: childURL, parent: self)
+        }.sorted {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+    }
+}
+
+private final class ArchiveStore {
+    private let imageExtensions: Set<String> = [
+        "jpg", "jpeg", "png", "heic", "heif", "tif", "tiff", "gif", "webp",
+        "bmp", "jp2", "cr2", "cr3", "nef", "arw", "raf", "rw2", "dng"
+    ]
+
+    func scan(_ root: URL) -> [ModelFolder] {
+        let root = root.standardizedFileURL
+        if isModelFolder(root) || containsImages(root) {
+            return [makeModelFolder(root)]
+        }
+
+        let children = immediateDirectories(root)
+        let modelFolders = children
+            .filter { isModelFolder($0) || containsImages($0) }
+            .map(makeModelFolder)
+            .filter { !$0.images.isEmpty || $0.profileURL != nil }
+
+        if modelFolders.isEmpty {
+            return [makeModelFolder(root)].filter { !$0.images.isEmpty || $0.profileURL != nil }
+        }
+
+        return modelFolders.sorted {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+    }
+
+    private func isModelFolder(_ url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.appendingPathComponent("profile.md").path)
+    }
+
+    private func containsImages(_ url: URL) -> Bool {
+        guard let items = try? FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return false
+        }
+        return items.contains { imageExtensions.contains($0.pathExtension.lowercased()) }
+    }
+
+    private func immediateDirectories(_ url: URL) -> [URL] {
+        guard let items = try? FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        return items.filter {
+            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
+    }
+
+    private func makeModelFolder(_ url: URL) -> ModelFolder {
+        let profile = url.appendingPathComponent("profile.md")
+        let profileURL = FileManager.default.fileExists(atPath: profile.path) ? profile : nil
+        return ModelFolder(
+            url: url,
+            name: url.lastPathComponent,
+            profileURL: profileURL,
+            images: imageAssets(in: url)
+        )
+    }
+
+    private func imageAssets(in url: URL) -> [ImageAsset] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            return []
+        }
+
+        var assets: [ImageAsset] = []
+        for case let fileURL as URL in enumerator {
+            guard imageExtensions.contains(fileURL.pathExtension.lowercased()) else { continue }
+            let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            guard values?.isRegularFile == true else { continue }
+            assets.append(ImageAsset(
+                url: fileURL,
+                name: fileURL.deletingPathExtension().lastPathComponent,
+                byteCount: Int64(values?.fileSize ?? 0)
+            ))
+        }
+
+        return assets.sorted {
+            $0.url.path.localizedStandardCompare($1.url.path) == .orderedAscending
+        }
+    }
+}
+
+private final class ImageCache {
+    static let shared = ImageCache()
+
+    private let thumbnailCache = NSCache<NSURL, NSImage>()
+    private let previewCache = NSCache<NSURL, NSImage>()
+    private let queue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.name = "LuminaArchive.ImageDecode"
+        queue.qualityOfService = .userInitiated
+        queue.maxConcurrentOperationCount = 5
+        return queue
+    }()
+
+    private init() {
+        thumbnailCache.countLimit = 1_500
+        previewCache.countLimit = 80
+    }
+
+    func thumbnail(for url: URL, side: CGFloat, completion: @escaping (NSImage?) -> Void) {
+        let key = cacheKey(url: url, size: Int(side))
+        if let cached = thumbnailCache.object(forKey: key) {
+            completion(cached)
+            return
+        }
+
+        queue.addOperation { [thumbnailCache] in
+            let image = Self.decode(url: url, maxPixel: Int(side * 2))
+            if let image {
+                thumbnailCache.setObject(image, forKey: key)
+            }
+            OperationQueue.main.addOperation {
+                completion(image)
+            }
+        }
+    }
+
+    func preview(for url: URL, maxPixel: Int = 2600, completion: @escaping (NSImage?) -> Void) {
+        let key = cacheKey(url: url, size: maxPixel)
+        if let cached = previewCache.object(forKey: key) {
+            completion(cached)
+            return
+        }
+
+        queue.addOperation { [previewCache] in
+            let image = Self.decode(url: url, maxPixel: maxPixel)
+            if let image {
+                previewCache.setObject(image, forKey: key)
+            }
+            OperationQueue.main.addOperation {
+                completion(image)
+            }
+        }
+    }
+
+    func warm(_ urls: [URL], side: CGFloat) {
+        for url in urls {
+            thumbnail(for: url, side: side) { _ in }
+        }
+    }
+
+    private func cacheKey(url: URL, size: Int) -> NSURL {
+        NSURL(fileURLWithPath: "\(url.path)#\(size)")
+    }
+
+    private static func decode(url: URL, maxPixel: Int) -> NSImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+            return NSImage(contentsOf: url)
+        }
+
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel
+        ]
+
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return NSImage(contentsOf: url)
+        }
+
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+}
+
+private final class BackgroundView: NSView {
+    var color: NSColor = Palette.bg {
+        didSet { needsDisplay = true }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        color.setFill()
+        dirtyRect.fill()
+    }
+}
+
+private final class RoundedButton: NSButton {
+    var fillColor: NSColor = .clear { didSet { needsDisplay = true } }
+    var activeFillColor: NSColor = Palette.surface { didSet { needsDisplay = true } }
+    var textColor: NSColor = Palette.secondary { didSet { needsDisplay = true } }
+    var activeTextColor: NSColor = Palette.text { didSet { needsDisplay = true } }
+    var isActive: Bool = false { didSet { needsDisplay = true } }
+
+    convenience init(title: String, target: AnyObject?, action: Selector?) {
+        self.init(frame: .zero)
+        self.title = title
+        self.target = target
+        self.action = action
+        bezelStyle = .regularSquare
+        isBordered = false
+        wantsLayer = true
+        setButtonType(.momentaryChange)
+        font = .systemFont(ofSize: 12, weight: .medium)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let rect = bounds.insetBy(dx: 1, dy: 1)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7)
+        (isActive ? activeFillColor : fillColor).setFill()
+        path.fill()
+        Palette.border.setStroke()
+        path.lineWidth = 1
+        path.stroke()
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font ?? NSFont.systemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: isActive ? activeTextColor : textColor
+        ]
+        let size = title.size(withAttributes: attributes)
+        title.draw(
+            at: NSPoint(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2),
+            withAttributes: attributes
+        )
+    }
+}
+
+private final class ImageCollectionItem: NSCollectionViewItem {
+    static let identifier = NSUserInterfaceItemIdentifier("ImageCollectionItem")
+    private let thumbImageView = NSImageView()
+    private let label = NSTextField(labelWithString: "")
+    private var representedURL: URL?
+
+    var selectedAccent: Bool = false {
+        didSet { view.needsDisplay = true }
+    }
+
+    override func loadView() {
+        view = ThumbnailCellView()
+        view.wantsLayer = true
+
+        thumbImageView.imageScaling = .scaleProportionallyUpOrDown
+        thumbImageView.wantsLayer = true
+        thumbImageView.layer?.backgroundColor = NSColor.white.cgColor
+        thumbImageView.layer?.cornerRadius = 8
+        thumbImageView.layer?.masksToBounds = true
+
+        label.font = .systemFont(ofSize: 10, weight: .medium)
+        label.textColor = Palette.secondary
+        label.alignment = .center
+        label.lineBreakMode = .byTruncatingMiddle
+
+        view.addSubview(thumbImageView)
+        view.addSubview(label)
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        let labelHeight: CGFloat = 18
+        thumbImageView.frame = NSRect(x: 6, y: 6, width: view.bounds.width - 12, height: view.bounds.height - labelHeight - 14)
+        label.frame = NSRect(x: 4, y: view.bounds.height - labelHeight - 2, width: view.bounds.width - 8, height: labelHeight)
+    }
+
+    func configure(asset: ImageAsset, side: CGFloat, isCurrent: Bool) {
+        representedURL = asset.url
+        label.stringValue = asset.name
+        thumbImageView.image = nil
+        selectedAccent = isCurrent
+        (view as? ThumbnailCellView)?.isSelected = isCurrent
+
+        ImageCache.shared.thumbnail(for: asset.url, side: side) { [weak self] image in
+            guard let self, self.representedURL == asset.url else { return }
+            self.thumbImageView.image = image
+        }
+    }
+}
+
+private final class ThumbnailCellView: NSView {
+    var isSelected = false {
+        didSet { needsDisplay = true }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 10, yRadius: 10)
+        NSColor.white.setFill()
+        path.fill()
+        (isSelected ? Palette.accent : Palette.border).setStroke()
+        path.lineWidth = isSelected ? 3 : 1
+        path.stroke()
+    }
+}
+
+private final class SidebarItemView: NSTableCellView {
+    let title = NSTextField(labelWithString: "")
+    let subtitle = NSTextField(labelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        title.font = .systemFont(ofSize: 13, weight: .medium)
+        title.textColor = Palette.text
+        title.lineBreakMode = .byTruncatingMiddle
+        subtitle.font = .systemFont(ofSize: 11)
+        subtitle.textColor = Palette.secondary
+        addSubview(title)
+        addSubview(subtitle)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func layout() {
+        super.layout()
+        title.frame = NSRect(x: 12, y: 7, width: bounds.width - 24, height: 18)
+        subtitle.frame = NSRect(x: 12, y: 26, width: bounds.width - 24, height: 16)
+    }
+}
+
+private final class MarkdownRenderer {
+    static func render(_ markdown: String) -> NSAttributedString {
+        let output = NSMutableAttributedString()
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 4
+        paragraph.paragraphSpacing = 8
+        let body: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 13),
+            .foregroundColor: Palette.text,
+            .paragraphStyle: paragraph
+        ]
+
+        let lines = markdown.components(separatedBy: .newlines)
+        for rawLine in lines {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("# ") {
+                append(String(line.dropFirst(2)), to: output, font: .systemFont(ofSize: 28, weight: .light), color: Palette.text, spacing: 14)
+            } else if line.hasPrefix("## ") {
+                append(line.dropFirst(3).uppercased(), to: output, font: .systemFont(ofSize: 11, weight: .bold), color: Palette.accent, spacing: 8)
+            } else if line.hasPrefix("### ") {
+                append(line.dropFirst(4).uppercased(), to: output, font: .systemFont(ofSize: 11, weight: .semibold), color: Palette.accent, spacing: 6)
+            } else if line.hasPrefix("- ") {
+                let bullet = "• " + String(line.dropFirst(2))
+                output.append(inlineStyled(bullet + "\n", base: body))
+            } else if line.isEmpty {
+                output.append(NSAttributedString(string: "\n", attributes: body))
+            } else {
+                output.append(inlineStyled(line + "\n", base: body))
+            }
+        }
+
+        return output
+    }
+
+    private static func append(_ text: String, to output: NSMutableAttributedString, font: NSFont, color: NSColor, spacing: CGFloat) {
+        let style = NSMutableParagraphStyle()
+        style.paragraphSpacing = spacing
+        output.append(NSAttributedString(
+            string: text + "\n",
+            attributes: [.font: font, .foregroundColor: color, .paragraphStyle: style]
+        ))
+    }
+
+    private static func inlineStyled(_ text: String, base: [NSAttributedString.Key: Any]) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: text.replacingOccurrences(of: "**", with: ""), attributes: base)
+        let scanner = text as NSString
+        var searchRange = NSRange(location: 0, length: scanner.length)
+        var removedBefore = 0
+        while true {
+            let open = scanner.range(of: "**", options: [], range: searchRange)
+            if open.location == NSNotFound { break }
+            let afterOpen = NSRange(location: open.location + 2, length: scanner.length - open.location - 2)
+            let close = scanner.range(of: "**", options: [], range: afterOpen)
+            if close.location == NSNotFound { break }
+
+            let adjustedStart = open.location - removedBefore
+            let adjustedLength = close.location - open.location - 2
+            if adjustedStart >= 0, adjustedStart + adjustedLength <= result.length {
+                result.addAttributes([
+                    .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+                    .foregroundColor: NSColor(calibratedWhite: 0.08, alpha: 1)
+                ], range: NSRange(location: adjustedStart, length: adjustedLength))
+            }
+            removedBefore += 4
+            let next = close.location + 2
+            if next >= scanner.length { break }
+            searchRange = NSRange(location: next, length: scanner.length - next)
+        }
+        return result
+    }
+}
+
+private enum MarkdownHTMLRenderer {
+    static func render(_ markdown: String) -> String {
+        let body = blocks(from: markdown)
+        return """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <style>
+            :root {
+              color-scheme: light;
+              --text: #333333;
+              --secondary: #737373;
+              --accent: #5B8C8A;
+              --border: rgba(0,0,0,.10);
+              --surface: #ffffff;
+              --soft: #F8F7F3;
+            }
+            html, body {
+              margin: 0;
+              padding: 0;
+              background: var(--surface);
+              color: var(--text);
+              font: 14px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+              line-height: 1.55;
+            }
+            body { padding: clamp(22px, 5vw, 42px); box-sizing: border-box; }
+            h1 {
+              font-size: clamp(28px, 7vw, 42px);
+              line-height: 1.08;
+              font-weight: 300;
+              letter-spacing: 0;
+              margin: 0 0 28px;
+            }
+            h2, h3 {
+              color: var(--accent);
+              font-size: 11px;
+              line-height: 1.3;
+              font-weight: 700;
+              letter-spacing: .08em;
+              text-transform: uppercase;
+              margin: 32px 0 10px;
+            }
+            p { margin: 0 0 16px; max-width: 68ch; }
+            strong { font-weight: 700; color: #222; }
+            ul { margin: 0 0 18px 1.2em; padding: 0; }
+            li { margin: 6px 0; }
+            .table-wrap {
+              overflow-x: auto;
+              margin: 18px 0 24px;
+              border: 1px solid var(--border);
+              border-radius: 8px;
+              background: var(--surface);
+            }
+            table {
+              width: 100%;
+              min-width: 420px;
+              border-collapse: collapse;
+              font-size: 13px;
+            }
+            th, td {
+              padding: 10px 12px;
+              text-align: left;
+              vertical-align: top;
+              border-bottom: 1px solid var(--border);
+            }
+            th {
+              background: var(--soft);
+              color: #2f4f4d;
+              font-size: 11px;
+              letter-spacing: .04em;
+              text-transform: uppercase;
+            }
+            tr:last-child td { border-bottom: 0; }
+            code {
+              padding: 2px 5px;
+              border-radius: 5px;
+              background: var(--soft);
+              font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+              font-size: .92em;
+            }
+            @media (max-width: 420px) {
+              body { padding: 22px; }
+              table { min-width: 360px; }
+            }
+          </style>
+        </head>
+        <body>
+        \(body)
+        </body>
+        </html>
+        """
+    }
+
+    private static func blocks(from markdown: String) -> String {
+        let lines = markdown.components(separatedBy: .newlines)
+        var html: [String] = []
+        var paragraph: [String] = []
+        var listItems: [String] = []
+        var index = 0
+
+        func flushParagraph() {
+            if !paragraph.isEmpty {
+                html.append("<p>\(inline(paragraph.joined(separator: " ")))</p>")
+                paragraph.removeAll()
+            }
+        }
+
+        func flushList() {
+            if !listItems.isEmpty {
+                html.append("<ul>\(listItems.map { "<li>\($0)</li>" }.joined())</ul>")
+                listItems.removeAll()
+            }
+        }
+
+        while index < lines.count {
+            let raw = lines[index]
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty {
+                flushParagraph()
+                flushList()
+                index += 1
+                continue
+            }
+
+            if isTableStart(lines, at: index) {
+                flushParagraph()
+                flushList()
+                let parsed = parseTable(lines, from: index)
+                html.append(parsed.html)
+                index = parsed.nextIndex
+                continue
+            }
+
+            if line.hasPrefix("# ") {
+                flushParagraph()
+                flushList()
+                html.append("<h1>\(inline(String(line.dropFirst(2))))</h1>")
+            } else if line.hasPrefix("## ") {
+                flushParagraph()
+                flushList()
+                html.append("<h2>\(inline(String(line.dropFirst(3))))</h2>")
+            } else if line.hasPrefix("### ") {
+                flushParagraph()
+                flushList()
+                html.append("<h3>\(inline(String(line.dropFirst(4))))</h3>")
+            } else if line.hasPrefix("- ") {
+                flushParagraph()
+                listItems.append(inline(String(line.dropFirst(2))))
+            } else {
+                flushList()
+                if raw.hasSuffix("  ") {
+                    flushParagraph()
+                    html.append("<p>\(inline(line))</p>")
+                } else {
+                    paragraph.append(line)
+                }
+            }
+            index += 1
+        }
+
+        flushParagraph()
+        flushList()
+        return html.joined(separator: "\n")
+    }
+
+    private static func isTableStart(_ lines: [String], at index: Int) -> Bool {
+        guard index + 1 < lines.count else { return false }
+        let header = lines[index].trimmingCharacters(in: .whitespaces)
+        let separator = lines[index + 1].trimmingCharacters(in: .whitespaces)
+        return header.contains("|") && separator.range(of: #"^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$"#, options: .regularExpression) != nil
+    }
+
+    private static func parseTable(_ lines: [String], from start: Int) -> (html: String, nextIndex: Int) {
+        let headers = tableCells(lines[start])
+        var rows: [[String]] = []
+        var index = start + 2
+        while index < lines.count {
+            let line = lines[index].trimmingCharacters(in: .whitespaces)
+            guard line.contains("|"), !line.isEmpty else { break }
+            rows.append(tableCells(line))
+            index += 1
+        }
+
+        let head = headers.map { "<th>\(inline($0))</th>" }.joined()
+        let body = rows.map { row in
+            "<tr>\(row.map { "<td>\(inline($0))</td>" }.joined())</tr>"
+        }.joined()
+        return ("<div class=\"table-wrap\"><table><thead><tr>\(head)</tr></thead><tbody>\(body)</tbody></table></div>", index)
+    }
+
+    private static func tableCells(_ line: String) -> [String] {
+        var trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("|") { trimmed.removeFirst() }
+        if trimmed.hasSuffix("|") { trimmed.removeLast() }
+        return trimmed.split(separator: "|", omittingEmptySubsequences: false).map {
+            String($0).trimmingCharacters(in: .whitespaces)
+        }
+    }
+
+    private static func inline(_ text: String) -> String {
+        var output = escape(text)
+        output = output.replacingOccurrences(of: #"`([^`]+)`"#, with: "<code>$1</code>", options: .regularExpression)
+        output = output.replacingOccurrences(of: #"\*\*([^*]+)\*\*"#, with: "<strong>$1</strong>", options: .regularExpression)
+        return output
+    }
+
+    private static func escape(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+    }
+}
+
+private final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollectionViewDataSource, NSCollectionViewDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate, NSSearchFieldDelegate {
+    private let store = ArchiveStore()
+    private var browserRoot: FolderNode?
+    private var suppressBrowserSelection = false
+    private var keyMonitor: Any?
+    private let sidebarImageExtensions: Set<String> = [
+        "jpg", "jpeg", "png", "heic", "heif", "tif", "tiff", "gif", "webp",
+        "bmp", "jp2", "cr2", "cr3", "nef", "arw", "raf", "rw2", "dng"
+    ]
+    private var models: [ModelFolder] = []
+    private var filteredImages: [ImageAsset] = []
+    private var selectedModelIndex = 0
+    private var selectedImageIndex = 0
+    private var viewMode: ViewMode = .split
+    private var density: Density = .comfortable
+    private var profileVisible = true
+    private var viewerProfileVisible = false
+    private var slideshowTimer: Timer?
+
+    private let rootView = BackgroundView()
+    private let topBar = NSVisualEffectView()
+    private let modeControl = NSSegmentedControl(labels: ["Split", "Tabbed", "Fullscreen"], trackingMode: .selectOne, target: nil, action: nil)
+    private let openButton = RoundedButton(title: "Choose Library", target: nil, action: nil)
+    private let densityButton = RoundedButton(title: "Comfortable", target: nil, action: nil)
+    private let slideshowButton = RoundedButton(title: "Slideshow", target: nil, action: nil)
+    private let profileButton = RoundedButton(title: "Profile", target: nil, action: nil)
+    private let searchField = NSSearchField()
+    private let sidebar = NSOutlineView()
+    private let sidebarScroll = NSScrollView()
+    private let libraryTitleLabel = NSTextField(labelWithString: "Library")
+    private let libraryPathLabel = NSTextField(labelWithString: "No folder selected")
+    private let changeLibraryButton = RoundedButton(title: "Change...", target: nil, action: nil)
+    private let toolbarStrip = BackgroundView()
+    private let collectionView = DoubleClickCollectionView()
+    private let collectionScroll = NSScrollView()
+    private let previewImageView = NSImageView()
+    private let viewerTopBar = NSVisualEffectView()
+    private let viewerBottomBar = NSVisualEffectView()
+    private let viewerTitleLabel = NSTextField(labelWithString: "")
+    private let viewerMetaLabel = NSTextField(labelWithString: "")
+    private let viewerFileLabel = NSTextField(labelWithString: "")
+    private let viewerExitButton = RoundedButton(title: "Exit", target: nil, action: nil)
+    private let viewerProfileButton = RoundedButton(title: "Profile", target: nil, action: nil)
+    private let viewerPrevButton = RoundedButton(title: "‹", target: nil, action: nil)
+    private let viewerNextButton = RoundedButton(title: "›", target: nil, action: nil)
+    private let profileWebView = WKWebView()
+    private let statusLabel = NSTextField(labelWithString: "")
+    private let pathLabel = NSTextField(labelWithString: "")
+    private let titleLabel = NSTextField(labelWithString: "Lumina Archive")
+    private let countLabel = NSTextField(labelWithString: "")
+    private let emptyLabel = NSTextField(labelWithString: "Open a generated arkiv folder to begin.")
+
+    convenience init() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1320, height: 840),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Lumina Archive"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isMovableByWindowBackground = false
+        window.minSize = NSSize(width: 980, height: 620)
+        self.init(window: window)
+        window.delegate = self
+        setup()
+    }
+
+    override func windowDidLoad() {
+        super.windowDidLoad()
+        window?.makeFirstResponder(nil)
+    }
+
+    deinit {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+        }
+    }
+
+    private func setup() {
+        guard let window else { return }
+        rootView.color = Palette.bg
+        window.contentView = rootView
+
+        setupTopBar()
+        setupSidebar()
+        setupToolbarStrip()
+        setupCollection()
+        setupPreview()
+        setupViewerOverlay()
+        setupProfile()
+        setupStatusBar()
+        setupEmptyState()
+        layoutViews()
+        updateModeButtons()
+        updateContentVisibility()
+        installKeyMonitor()
+
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        let shouldOpenViewer = arguments.contains("--viewer")
+        let shouldOpenViewerProfile = arguments.contains("--viewer-profile")
+        if let argument = arguments.first(where: { !$0.hasPrefix("--") }) {
+            openArchive(URL(fileURLWithPath: argument))
+            if shouldOpenViewer, !filteredImages.isEmpty {
+                openViewer(at: selectedImageIndex, showProfile: shouldOpenViewerProfile)
+            }
+        }
+    }
+
+    private func setupTopBar() {
+        topBar.material = .headerView
+        topBar.blendingMode = .withinWindow
+        topBar.state = .active
+        rootView.addSubview(topBar)
+
+        titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        titleLabel.textColor = Palette.secondary
+        rootView.addSubview(titleLabel)
+
+        modeControl.target = self
+        modeControl.action = #selector(modeChanged)
+        modeControl.selectedSegment = 0
+        modeControl.segmentStyle = .rounded
+        rootView.addSubview(modeControl)
+
+        openButton.target = self
+        openButton.action = #selector(openFolder)
+        openButton.fillColor = Palette.surface
+        openButton.textColor = Palette.text
+
+        searchField.placeholderString = "Search images"
+        searchField.delegate = self
+        searchField.font = .systemFont(ofSize: 13)
+        searchField.wantsLayer = true
+        searchField.layer?.cornerRadius = 8
+        rootView.addSubview(searchField)
+
+        densityButton.target = self
+        densityButton.action = #selector(toggleDensity)
+        densityButton.fillColor = Palette.hover
+        densityButton.textColor = Palette.text
+        rootView.addSubview(densityButton)
+
+        slideshowButton.target = self
+        slideshowButton.action = #selector(toggleSlideshow)
+        slideshowButton.fillColor = Palette.accent
+        slideshowButton.textColor = .white
+        rootView.addSubview(slideshowButton)
+
+        profileButton.target = self
+        profileButton.action = #selector(toggleProfile)
+        profileButton.fillColor = Palette.hover
+        profileButton.textColor = Palette.text
+        rootView.addSubview(profileButton)
+    }
+
+    private func setupSidebar() {
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Model"))
+        sidebar.addTableColumn(column)
+        sidebar.outlineTableColumn = column
+        sidebar.headerView = nil
+        sidebar.rowHeight = 42
+        sidebar.backgroundColor = Palette.elevated
+        sidebar.selectionHighlightStyle = .regular
+        sidebar.dataSource = self
+        sidebar.delegate = self
+        sidebarScroll.documentView = sidebar
+        sidebarScroll.hasVerticalScroller = true
+        sidebarScroll.drawsBackground = false
+        rootView.addSubview(sidebarScroll)
+
+        libraryTitleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        libraryTitleLabel.textColor = Palette.text
+        libraryPathLabel.font = .systemFont(ofSize: 10, weight: .medium)
+        libraryPathLabel.textColor = Palette.secondary
+        libraryPathLabel.lineBreakMode = .byTruncatingMiddle
+        changeLibraryButton.target = self
+        changeLibraryButton.action = #selector(openFolder)
+        changeLibraryButton.fillColor = Palette.surface
+        changeLibraryButton.textColor = Palette.text
+        rootView.addSubview(libraryTitleLabel)
+        rootView.addSubview(libraryPathLabel)
+        rootView.addSubview(changeLibraryButton)
+    }
+
+    private func setupToolbarStrip() {
+        toolbarStrip.color = Palette.surface
+        rootView.addSubview(toolbarStrip, positioned: .below, relativeTo: searchField)
+    }
+
+    private func setupCollection() {
+        let layout = NSCollectionViewFlowLayout()
+        layout.minimumInteritemSpacing = 18
+        layout.minimumLineSpacing = 22
+        layout.sectionInset = NSEdgeInsets(top: 22, left: 22, bottom: 22, right: 22)
+        layout.itemSize = NSSize(width: density.itemSide, height: density.itemSide + 26)
+
+        collectionView.collectionViewLayout = layout
+        collectionView.register(ImageCollectionItem.self, forItemWithIdentifier: ImageCollectionItem.identifier)
+        collectionView.dataSource = self
+        collectionView.delegate = self
+        collectionView.keyHandler = { [weak self] event in
+            self?.handleKey(event) ?? false
+        }
+        collectionView.isSelectable = true
+        collectionView.backgroundColors = [Palette.bg]
+        collectionView.allowsEmptySelection = false
+        collectionScroll.documentView = collectionView
+        collectionScroll.hasVerticalScroller = true
+        collectionScroll.drawsBackground = false
+        rootView.addSubview(collectionScroll)
+    }
+
+    private func setupPreview() {
+        previewImageView.imageScaling = .scaleProportionallyUpOrDown
+        previewImageView.wantsLayer = true
+        previewImageView.layer?.backgroundColor = Palette.dark.cgColor
+        previewImageView.layer?.cornerRadius = 0
+        rootView.addSubview(previewImageView)
+    }
+
+    private func setupViewerOverlay() {
+        for bar in [viewerTopBar, viewerBottomBar] {
+            bar.material = .hudWindow
+            bar.blendingMode = .withinWindow
+            bar.state = .active
+            rootView.addSubview(bar)
+        }
+
+        viewerTitleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        viewerTitleLabel.textColor = .white
+        viewerMetaLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        viewerMetaLabel.textColor = NSColor.white.withAlphaComponent(0.65)
+        viewerFileLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        viewerFileLabel.textColor = NSColor.white.withAlphaComponent(0.78)
+        viewerFileLabel.alignment = .center
+
+        viewerExitButton.target = self
+        viewerExitButton.action = #selector(exitViewer)
+        viewerProfileButton.target = self
+        viewerProfileButton.action = #selector(toggleViewerProfile)
+        viewerPrevButton.target = self
+        viewerPrevButton.action = #selector(previousImage)
+        viewerNextButton.target = self
+        viewerNextButton.action = #selector(nextImage)
+
+        for button in [viewerExitButton, viewerProfileButton, viewerPrevButton, viewerNextButton] {
+            button.fillColor = NSColor.black.withAlphaComponent(0.35)
+            button.textColor = .white
+            button.activeFillColor = Palette.accent
+            button.activeTextColor = .white
+            rootView.addSubview(button)
+        }
+
+        rootView.addSubview(viewerTitleLabel)
+        rootView.addSubview(viewerMetaLabel)
+        rootView.addSubview(viewerFileLabel)
+    }
+
+    private func setupProfile() {
+        profileWebView.setValue(false, forKey: "drawsBackground")
+        profileWebView.wantsLayer = true
+        profileWebView.layer?.backgroundColor = Palette.surface.cgColor
+        rootView.addSubview(profileWebView)
+    }
+
+    private func setupStatusBar() {
+        statusLabel.font = .systemFont(ofSize: 10, weight: .medium)
+        statusLabel.textColor = Palette.secondary
+        pathLabel.font = .systemFont(ofSize: 10, weight: .medium)
+        pathLabel.textColor = Palette.secondary
+        pathLabel.alignment = .right
+        rootView.addSubview(statusLabel)
+        rootView.addSubview(pathLabel)
+    }
+
+    private func setupEmptyState() {
+        emptyLabel.font = .systemFont(ofSize: 16, weight: .medium)
+        emptyLabel.textColor = Palette.secondary
+        emptyLabel.alignment = .center
+        rootView.addSubview(emptyLabel)
+        rootView.addSubview(openButton)
+    }
+
+    private func installKeyMonitor() {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.window?.isKeyWindow == true else { return event }
+            return self.handleKey(event) ? nil : event
+        }
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        layoutViews()
+    }
+
+    private func layoutViews() {
+        guard let content = window?.contentView else { return }
+        let bounds = content.bounds
+        let isViewer = viewMode == .fullscreen
+        let topHeight: CGFloat = isViewer ? 0 : 48
+        let statusHeight: CGFloat = isViewer ? 0 : 26
+        let sidebarWidth: CGFloat = viewMode == .fullscreen ? 0 : min(250, max(210, bounds.width * 0.18))
+        let profileWidth: CGFloat
+        if isViewer {
+            profileWidth = viewerProfileVisible ? min(380, max(320, bounds.width * 0.28)) : 0
+        } else {
+            profileWidth = (profileVisible && viewMode != .tabbed) ? min(360, max(300, bounds.width * 0.25)) : 0
+        }
+        let gap: CGFloat = 0
+
+        topBar.frame = NSRect(x: 0, y: bounds.height - topHeight, width: bounds.width, height: topHeight)
+        titleLabel.frame = NSRect(x: 94, y: bounds.height - 31, width: min(260, max(120, bounds.width * 0.24)), height: 18)
+        modeControl.frame = NSRect(x: (bounds.width - 285) / 2, y: bounds.height - 36, width: 285, height: 26)
+        openButton.frame = .zero
+
+        statusLabel.frame = NSRect(x: 14, y: 5, width: bounds.width * 0.45, height: 16)
+        pathLabel.frame = NSRect(x: bounds.width * 0.48, y: 5, width: bounds.width * 0.50 - 18, height: 16)
+
+        let contentY = statusHeight
+        let contentHeight = bounds.height - topHeight - statusHeight
+        let sidebarHeaderHeight: CGFloat = viewMode == .fullscreen ? 0 : 58
+        libraryTitleLabel.frame = NSRect(x: 18, y: contentY + contentHeight - 25, width: max(80, sidebarWidth - 128), height: 16)
+        libraryPathLabel.frame = NSRect(x: 18, y: contentY + contentHeight - 43, width: max(80, sidebarWidth - 36), height: 14)
+        changeLibraryButton.frame = NSRect(x: max(18, sidebarWidth - 98), y: contentY + contentHeight - 34, width: 82, height: 26)
+        sidebarScroll.frame = NSRect(x: 0, y: contentY, width: sidebarWidth, height: max(0, contentHeight - sidebarHeaderHeight))
+
+        let rightX = bounds.width - profileWidth
+        profileWebView.frame = NSRect(x: rightX, y: contentY, width: profileWidth, height: contentHeight)
+
+        let mainX = sidebarWidth + gap
+        let mainWidth = bounds.width - sidebarWidth - profileWidth - gap
+        let toolbarHeight: CGFloat = viewMode == .fullscreen ? 0 : 54
+        let toolbarY = contentY + contentHeight - toolbarHeight
+        toolbarStrip.frame = NSRect(x: mainX, y: toolbarY, width: max(0, mainWidth), height: toolbarHeight)
+
+        let buttonGap: CGFloat = 10
+        let densityW: CGFloat = 126
+        let slideshowW: CGFloat = 116
+        let profileW: CGFloat = 82
+        let buttonsWidth = densityW + slideshowW + profileW + buttonGap * 2
+        let buttonsX = mainX + mainWidth - buttonsWidth - 18
+        let searchX = mainX + 24
+        let searchWidth = min(240, buttonsX - searchX - 18)
+        if searchWidth >= 130 {
+            searchField.frame = NSRect(x: searchX, y: toolbarY + 13, width: searchWidth, height: 28)
+        } else {
+            searchField.frame = .zero
+        }
+        densityButton.frame = NSRect(x: buttonsX, y: toolbarY + 12, width: densityW, height: 30)
+        slideshowButton.frame = NSRect(x: densityButton.frame.maxX + buttonGap, y: toolbarY + 12, width: slideshowW, height: 30)
+        profileButton.frame = NSRect(x: slideshowButton.frame.maxX + buttonGap, y: toolbarY + 12, width: profileW, height: 30)
+
+        let mainFrame = NSRect(x: mainX, y: contentY, width: mainWidth, height: contentHeight)
+        switch viewMode {
+        case .split:
+            collectionScroll.frame = NSRect(x: mainFrame.minX, y: mainFrame.minY, width: mainFrame.width, height: mainFrame.height - toolbarHeight)
+            previewImageView.frame = .zero
+        case .tabbed:
+            let showingProfileTab = modeControl.selectedSegment == ViewMode.tabbed.rawValue && profileVisible
+            collectionScroll.frame = showingProfileTab ? .zero : mainFrame
+            profileWebView.frame = showingProfileTab ? NSRect(x: mainX, y: contentY, width: mainWidth, height: contentHeight) : .zero
+            previewImageView.frame = .zero
+        case .fullscreen:
+            previewImageView.frame = mainFrame.insetBy(dx: 36, dy: 64)
+            collectionScroll.frame = .zero
+        }
+
+        layoutViewerOverlay(bounds: bounds, profileWidth: profileWidth)
+        emptyLabel.frame = NSRect(x: mainX + 20, y: contentY + contentHeight / 2 + 8, width: max(260, mainWidth - 40), height: 40)
+        if !emptyLabel.isHidden {
+            openButton.frame = NSRect(x: bounds.midX - 72, y: contentY + contentHeight / 2 - 34, width: 144, height: 32)
+        }
+    }
+
+    private func layoutViewerOverlay(bounds: NSRect, profileWidth: CGFloat) {
+        let isViewer = viewMode == .fullscreen
+        let viewerWidth = bounds.width - profileWidth
+        viewerTopBar.frame = isViewer ? NSRect(x: 0, y: bounds.height - 56, width: viewerWidth, height: 56) : .zero
+        viewerBottomBar.frame = isViewer ? NSRect(x: 0, y: 0, width: viewerWidth, height: 46) : .zero
+        viewerTitleLabel.frame = isViewer ? NSRect(x: 28, y: bounds.height - 32, width: max(160, viewerWidth * 0.40), height: 18) : .zero
+        viewerMetaLabel.frame = isViewer ? NSRect(x: 28, y: bounds.height - 49, width: max(160, viewerWidth * 0.40), height: 14) : .zero
+
+        viewerExitButton.frame = isViewer ? NSRect(x: viewerWidth - 80, y: bounds.height - 42, width: 56, height: 30) : .zero
+        viewerProfileButton.frame = isViewer ? NSRect(x: viewerWidth - 176, y: bounds.height - 42, width: 84, height: 30) : .zero
+        viewerPrevButton.frame = isViewer ? NSRect(x: 28, y: bounds.midY - 26, width: 52, height: 52) : .zero
+        viewerNextButton.frame = isViewer ? NSRect(x: viewerWidth - 80, y: bounds.midY - 26, width: 52, height: 52) : .zero
+        viewerFileLabel.frame = isViewer ? NSRect(x: 120, y: 14, width: max(180, viewerWidth - 240), height: 18) : .zero
+    }
+
+    private func currentModel() -> ModelFolder? {
+        guard models.indices.contains(selectedModelIndex) else { return nil }
+        return models[selectedModelIndex]
+    }
+
+    private func currentImage() -> ImageAsset? {
+        guard filteredImages.indices.contains(selectedImageIndex) else { return nil }
+        return filteredImages[selectedImageIndex]
+    }
+
+    @objc func openFolder() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose a Library Folder"
+        panel.message = "Select the root folder that contains model folders and profile.md files."
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        panel.directoryURL = browserRoot?.url
+        panel.prompt = "Use Folder"
+
+        if let window {
+            panel.beginSheetModal(for: window) { [weak self] response in
+                guard response == .OK, let url = panel.url else { return }
+                self?.openArchive(url)
+            }
+        } else if panel.runModal() == .OK, let url = panel.url {
+            openArchive(url)
+        }
+    }
+
+    private func openArchive(_ url: URL, resetBrowser: Bool = true) {
+        let rootURL = url.standardizedFileURL
+        if resetBrowser {
+            browserRoot = FolderNode(url: rootURL)
+            browserRoot?.loadChildren()
+            suppressBrowserSelection = true
+            sidebar.reloadData()
+            if let browserRoot {
+                sidebar.expandItem(browserRoot)
+            }
+            suppressBrowserSelection = false
+        }
+
+        let scannedModels = store.scan(rootURL)
+        let displayURL = resetBrowser ? (scannedModels.first?.url ?? rootURL) : rootURL
+        models = displayURL == rootURL ? scannedModels : store.scan(displayURL)
+        selectedModelIndex = 0
+        selectBrowserURL(displayURL)
+        loadSelectedModel()
+        updateContentVisibility()
+        libraryPathLabel.stringValue = rootURL.path
+        pathLabel.stringValue = displayURL.path
+        window?.title = "Lumina Archive - \(rootURL.lastPathComponent)"
+    }
+
+    private func selectBrowserURL(_ url: URL) {
+        guard let browserRoot else { return }
+        browserRoot.loadChildren()
+        guard let node = findBrowserNode(url.standardizedFileURL, in: browserRoot) else { return }
+        var parent = node.parent
+        while let currentParent = parent {
+            sidebar.expandItem(currentParent)
+            parent = currentParent.parent
+        }
+        let row = sidebar.row(forItem: node)
+        guard row >= 0 else { return }
+        suppressBrowserSelection = true
+        sidebar.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        suppressBrowserSelection = false
+    }
+
+    private func findBrowserNode(_ url: URL, in node: FolderNode) -> FolderNode? {
+        if node.url == url {
+            return node
+        }
+        guard url.path.hasPrefix(node.url.path) else {
+            return nil
+        }
+        node.loadChildren()
+        for child in node.children {
+            guard url.path.hasPrefix(child.url.path) else { continue }
+            if let match = findBrowserNode(url, in: child) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private func loadSelectedModel() {
+        searchField.stringValue = ""
+        filteredImages = currentModel()?.images ?? []
+        selectedImageIndex = 0
+        collectionView.reloadData()
+        if !filteredImages.isEmpty {
+            collectionView.selectItems(at: Set([IndexPath(item: 0, section: 0)]), scrollPosition: .top)
+            ImageCache.shared.warm(Array(filteredImages.prefix(36).map(\.url)), side: density.itemSide)
+        }
+        window?.makeFirstResponder(nil)
+        loadProfile()
+        loadPreview()
+        updateStatus()
+        emptyLabel.isHidden = !models.isEmpty
+    }
+
+    private func loadProfile() {
+        guard let model = currentModel() else {
+            profileWebView.loadHTMLString(MarkdownHTMLRenderer.render(""), baseURL: nil)
+            return
+        }
+
+        guard let profileURL = model.profileURL,
+              let markdown = try? String(contentsOf: profileURL, encoding: .utf8) else {
+            let fallback = "# \(model.name)\n\nNo profile.md found in this folder."
+            profileWebView.loadHTMLString(MarkdownHTMLRenderer.render(fallback), baseURL: model.url)
+            return
+        }
+
+        profileWebView.loadHTMLString(MarkdownHTMLRenderer.render(markdown), baseURL: profileURL.deletingLastPathComponent())
+    }
+
+    private func loadPreview() {
+        guard viewMode == .fullscreen, let image = currentImage() else {
+            if viewMode != .fullscreen {
+                previewImageView.image = nil
+            }
+            return
+        }
+
+        previewImageView.image = nil
+        ImageCache.shared.preview(for: image.url) { [weak self] nsImage in
+            guard let self, self.currentImage()?.url == image.url else { return }
+            self.previewImageView.image = nsImage
+        }
+    }
+
+    private func updateStatus() {
+        let modelName = currentModel()?.name ?? "No archive"
+        let selected = filteredImages.isEmpty ? 0 : selectedImageIndex + 1
+        let totalBytes = filteredImages.reduce(Int64(0)) { $0 + $1.byteCount }
+        countLabel.stringValue = "\(filteredImages.count) items"
+        statusLabel.stringValue = "\(modelName)   \(selected) of \(filteredImages.count)   \(ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file))"
+        updateViewerLabels()
+    }
+
+    private func updateModeButtons() {
+        modeControl.selectedSegment = viewMode.rawValue
+        profileButton.isActive = profileVisible
+        viewerProfileButton.isActive = viewerProfileVisible
+        densityButton.title = density.title
+        densityButton.needsDisplay = true
+        viewerProfileButton.needsDisplay = true
+        updateViewerLabels()
+    }
+
+    private func updateContentVisibility() {
+        let hasArchive = !models.isEmpty
+        let isViewer = viewMode == .fullscreen
+        sidebarScroll.isHidden = !hasArchive || isViewer
+        libraryTitleLabel.isHidden = !hasArchive || isViewer
+        libraryPathLabel.isHidden = !hasArchive || isViewer
+        changeLibraryButton.isHidden = !hasArchive || isViewer
+        collectionScroll.isHidden = !hasArchive || isViewer || (viewMode == .tabbed && profileVisible)
+        previewImageView.isHidden = !hasArchive || !isViewer
+        profileWebView.isHidden = !hasArchive || (isViewer ? !viewerProfileVisible : (!profileVisible && viewMode != .tabbed))
+        toolbarStrip.isHidden = !hasArchive || isViewer
+        searchField.isHidden = !hasArchive || isViewer || (viewMode == .tabbed && profileVisible)
+        densityButton.isHidden = searchField.isHidden
+        slideshowButton.isHidden = !hasArchive || isViewer || (viewMode == .tabbed && profileVisible)
+        profileButton.isHidden = !hasArchive || isViewer
+        topBar.isHidden = isViewer
+        titleLabel.isHidden = isViewer
+        modeControl.isHidden = isViewer
+        openButton.isHidden = hasArchive || isViewer
+        statusLabel.isHidden = isViewer
+        pathLabel.isHidden = isViewer
+        for view in [viewerTopBar, viewerBottomBar, viewerTitleLabel, viewerMetaLabel, viewerFileLabel, viewerExitButton, viewerProfileButton, viewerPrevButton, viewerNextButton] {
+            view.isHidden = !hasArchive || !isViewer
+        }
+        emptyLabel.isHidden = hasArchive
+        rootView.color = isViewer ? Palette.dark : Palette.bg
+        layoutViews()
+    }
+
+    @objc private func modeChanged() {
+        viewMode = ViewMode(rawValue: modeControl.selectedSegment) ?? .split
+        if viewMode == .tabbed {
+            profileVisible = false
+            profileButton.title = "Profile"
+        }
+        if viewMode == .fullscreen {
+            openViewer(at: selectedImageIndex)
+            return
+        }
+        updateModeButtons()
+        updateContentVisibility()
+    }
+
+    @objc private func toggleDensity() {
+        density = density.next
+        if let layout = collectionView.collectionViewLayout as? NSCollectionViewFlowLayout {
+            layout.itemSize = NSSize(width: density.itemSide, height: density.itemSide + 26)
+            layout.invalidateLayout()
+        }
+        collectionView.reloadData()
+        updateModeButtons()
+    }
+
+    @objc private func toggleProfile() {
+        if viewMode == .tabbed {
+            profileVisible.toggle()
+            profileButton.title = profileVisible ? "Images" : "Profile"
+        } else {
+            profileVisible.toggle()
+        }
+        updateModeButtons()
+        updateContentVisibility()
+    }
+
+    @objc private func toggleViewerProfile() {
+        viewerProfileVisible.toggle()
+        updateModeButtons()
+        updateContentVisibility()
+    }
+
+    @objc private func exitViewer() {
+        stopSlideshow()
+        viewMode = .split
+        viewerProfileVisible = false
+        updateModeButtons()
+        updateContentVisibility()
+        loadPreview()
+        window?.makeFirstResponder(nil)
+    }
+
+    @objc private func previousImage() {
+        advanceImage(-1)
+    }
+
+    @objc private func nextImage() {
+        advanceImage(1)
+    }
+
+    @objc private func toggleSlideshow() {
+        if slideshowTimer == nil {
+            openViewer(at: selectedImageIndex)
+            slideshowButton.title = "Stop"
+            slideshowTimer = Timer.scheduledTimer(withTimeInterval: 2.8, repeats: true) { [weak self] _ in
+                self?.advanceImage(1)
+            }
+        } else {
+            stopSlideshow()
+        }
+    }
+
+    private func stopSlideshow() {
+        slideshowTimer?.invalidate()
+        slideshowTimer = nil
+        slideshowButton.title = "Slideshow"
+        slideshowButton.needsDisplay = true
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        let query = searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let images = currentModel()?.images ?? []
+        if query.isEmpty {
+            filteredImages = images
+        } else {
+            filteredImages = images.filter { $0.name.localizedCaseInsensitiveContains(query) || $0.url.lastPathComponent.localizedCaseInsensitiveContains(query) }
+        }
+        selectedImageIndex = 0
+        collectionView.reloadData()
+        if !filteredImages.isEmpty {
+            collectionView.selectItems(at: Set([IndexPath(item: 0, section: 0)]), scrollPosition: .top)
+        }
+        updateStatus()
+    }
+
+    func numberOfSections(in collectionView: NSCollectionView) -> Int {
+        1
+    }
+
+    func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
+        filteredImages.count
+    }
+
+    func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
+        let item = collectionView.makeItem(withIdentifier: ImageCollectionItem.identifier, for: indexPath)
+        guard let imageItem = item as? ImageCollectionItem else { return item }
+        imageItem.configure(asset: filteredImages[indexPath.item], side: density.itemSide, isCurrent: indexPath.item == selectedImageIndex)
+        return imageItem
+    }
+
+    func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
+        guard let indexPath = indexPaths.first else { return }
+        selectedImageIndex = indexPath.item
+        collectionView.reloadData()
+        updateStatus()
+    }
+
+    fileprivate func openCollectionItem(at indexPath: IndexPath) {
+        openViewer(at: indexPath.item)
+    }
+
+    private func openViewer(at index: Int, showProfile: Bool = false) {
+        guard filteredImages.indices.contains(index) else { return }
+        selectedImageIndex = index
+        viewMode = .fullscreen
+        viewerProfileVisible = showProfile
+        updateModeButtons()
+        updateContentVisibility()
+        loadPreview()
+        updateStatus()
+        window?.makeFirstResponder(collectionView)
+    }
+
+    private func updateViewerLabels() {
+        guard let model = currentModel(), let image = currentImage() else {
+            viewerTitleLabel.stringValue = ""
+            viewerMetaLabel.stringValue = ""
+            viewerFileLabel.stringValue = ""
+            return
+        }
+        viewerTitleLabel.stringValue = model.name
+        viewerMetaLabel.stringValue = "\(selectedImageIndex + 1) of \(filteredImages.count)"
+        viewerFileLabel.stringValue = image.url.lastPathComponent
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
+        if item == nil {
+            return browserRoot == nil ? 0 : 1
+        }
+        let node = item as? FolderNode
+        node?.loadChildren()
+        return node?.children.count ?? 0
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
+        if item == nil {
+            return browserRoot!
+        }
+        let node = item as? FolderNode
+        node?.loadChildren()
+        return node?.children[index] as Any
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
+        guard let node = item as? FolderNode else { return false }
+        node.loadChildren()
+        return !node.children.isEmpty
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
+        let identifier = NSUserInterfaceItemIdentifier("SidebarItem")
+        let view = outlineView.makeView(withIdentifier: identifier, owner: self) as? SidebarItemView ?? SidebarItemView()
+        view.identifier = identifier
+        guard let node = item as? FolderNode else { return view }
+        view.title.stringValue = node.name
+        view.subtitle.stringValue = folderSubtitle(for: node.url)
+        return view
+    }
+
+    private func folderSubtitle(for url: URL) -> String {
+        let profileExists = FileManager.default.fileExists(atPath: url.appendingPathComponent("profile.md").path)
+        let imageCount = (try? FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ).filter { sidebarImageExtensions.contains($0.pathExtension.lowercased()) }.count) ?? 0
+
+        if imageCount == 0, !profileExists {
+            return "Folder"
+        }
+        return "\(imageCount) images" + (profileExists ? " · profile.md" : "")
+    }
+
+    func outlineViewSelectionDidChange(_ notification: Notification) {
+        guard !suppressBrowserSelection else { return }
+        let row = sidebar.selectedRow
+        guard row >= 0, let node = sidebar.item(atRow: row) as? FolderNode else { return }
+        openArchive(node.url, resetBrowser: false)
+    }
+
+    private func handleKey(_ event: NSEvent) -> Bool {
+        if isSearchEditing() {
+            return false
+        }
+
+        switch event.keyCode {
+        case 123:
+            advanceImage(-1)
+            return true
+        case 124, 49:
+            advanceImage(1)
+            return true
+        case 115:
+            jumpToImage(0)
+            return true
+        case 119:
+            jumpToImage(max(0, filteredImages.count - 1))
+            return true
+        case 53:
+            if slideshowTimer != nil {
+                stopSlideshow()
+                return true
+            }
+            if viewMode == .fullscreen {
+                exitViewer()
+                return true
+            }
+        case 36:
+            if viewMode != .fullscreen {
+                openViewer(at: selectedImageIndex)
+                return true
+            }
+        default:
+            return false
+        }
+        return false
+    }
+
+    private func isSearchEditing() -> Bool {
+        guard let editor = searchField.currentEditor() else { return false }
+        return window?.firstResponder === editor
+    }
+
+    private func advanceImage(_ delta: Int) {
+        guard !filteredImages.isEmpty else { return }
+        selectedImageIndex = (selectedImageIndex + delta + filteredImages.count) % filteredImages.count
+        syncImageSelectionAfterKeyboardMove()
+    }
+
+    private func jumpToImage(_ index: Int) {
+        guard filteredImages.indices.contains(index) else { return }
+        selectedImageIndex = index
+        syncImageSelectionAfterKeyboardMove()
+    }
+
+    private func syncImageSelectionAfterKeyboardMove() {
+        if viewMode == .fullscreen {
+            loadPreview()
+        } else {
+            collectionView.selectItems(at: Set([IndexPath(item: selectedImageIndex, section: 0)]), scrollPosition: .centeredVertically)
+            collectionView.reloadData()
+        }
+        updateStatus()
+    }
+}
+
+private final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var mainWindowController: MainWindowController?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let controller = MainWindowController()
+        mainWindowController = controller
+        controller.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        setupMenu()
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
+    }
+
+    private func setupMenu() {
+        let mainMenu = NSMenu()
+        let appItem = NSMenuItem()
+        let fileItem = NSMenuItem()
+        mainMenu.addItem(appItem)
+        mainMenu.addItem(fileItem)
+
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Quit Lumina Archive", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+
+        let fileMenu = NSMenu(title: "File")
+        let openItem = NSMenuItem(title: "Open Archive...", action: #selector(MainWindowController.openFolder), keyEquivalent: "o")
+        openItem.target = mainWindowController
+        fileMenu.addItem(openItem)
+        fileItem.submenu = fileMenu
+        NSApp.mainMenu = mainMenu
+    }
+}
+
+private final class DoubleClickCollectionView: NSCollectionView {
+    var keyHandler: ((NSEvent) -> Bool)?
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        let point = convert(event.locationInWindow, from: nil)
+        if event.clickCount == 2, let indexPath = indexPathForItem(at: point) {
+            (delegate as? MainWindowController)?.openCollectionItem(at: indexPath)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if keyHandler?(event) == true {
+            return
+        }
+        super.keyDown(with: event)
+    }
+}
+
+let app = NSApplication.shared
+private let delegate = AppDelegate()
+app.delegate = delegate
+app.setActivationPolicy(.regular)
+app.run()
