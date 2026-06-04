@@ -152,8 +152,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
         slideshowButton.target = self
         slideshowButton.action = #selector(toggleSlideshow)
-        slideshowButton.fillColor = Palette.accent
-        slideshowButton.textColor = .white
+        slideshowButton.fillColor = Palette.hover
+        slideshowButton.textColor = Palette.text
+        slideshowButton.activeFillColor = Palette.accent
+        slideshowButton.activeTextColor = .white
         rootView.addSubview(slideshowButton)
 
         profileButton.target = self
@@ -556,8 +558,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         modeControl.selectedSegment = viewMode.rawValue
         profileButton.isActive = profileVisible
         viewerProfileButton.isActive = viewerProfileVisible
+        slideshowButton.isActive = slideshowTimer != nil
         densityButton.title = density.title
         densityButton.needsDisplay = true
+        slideshowButton.needsDisplay = true
         viewerProfileButton.needsDisplay = true
         updateViewerLabels()
     }
@@ -654,6 +658,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         if slideshowTimer == nil {
             openViewer(at: selectedImageIndex)
             slideshowButton.title = "Stop"
+            slideshowButton.isActive = true
             slideshowTimer = Timer.scheduledTimer(withTimeInterval: 2.8, repeats: true) { [weak self] _ in
                 self?.advanceImage(1)
             }
@@ -666,6 +671,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         slideshowTimer?.invalidate()
         slideshowTimer = nil
         slideshowButton.title = "Slideshow"
+        slideshowButton.isActive = false
         slideshowButton.needsDisplay = true
     }
 
