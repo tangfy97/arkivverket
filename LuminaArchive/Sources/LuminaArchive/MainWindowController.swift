@@ -161,8 +161,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         sidebar.addTableColumn(column)
         sidebar.outlineTableColumn = column
         sidebar.headerView = nil
-        sidebar.rowHeight = 56
-        sidebar.backgroundColor = Palette.elevated
+        sidebar.rowHeight = 60
+        sidebar.intercellSpacing = NSSize(width: 0, height: 0)
+        sidebar.backgroundColor = .clear
         sidebar.selectionHighlightStyle = .none
         sidebar.dataSource = self
         sidebar.delegate = self
@@ -837,8 +838,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let view = outlineView.makeView(withIdentifier: identifier, owner: self) as? SidebarItemView ?? SidebarItemView()
         view.identifier = identifier
         guard let node = item as? FolderNode else { return view }
-        view.title.stringValue = node.name
-        view.subtitle.stringValue = folderSubtitle(for: node.url)
+        view.nameLabel.stringValue = node.name
+        view.subtitleLabel.stringValue = folderSubtitle(for: node.url)
         view.isHighlighted = outlineView.row(forItem: item) == outlineView.selectedRow
         return view
     }
