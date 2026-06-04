@@ -6,10 +6,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private var browserRoot: FolderNode?
     private var suppressBrowserSelection = false
     private var keyMonitor: Any?
-    private let sidebarImageExtensions: Set<String> = [
-        "jpg", "jpeg", "png", "heic", "heif", "tif", "tiff", "gif", "webp",
-        "bmp", "jp2", "cr2", "cr3", "nef", "arw", "raf", "rw2", "dng"
-    ]
     private var models: [ModelFolder] = []
     private var filteredImages: [ImageAsset] = []
     private var selectedModelIndex = 0
@@ -195,7 +191,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     }
 
     private func setupToolbarStrip() {
-        toolbarStrip.color = Palette.surface
+        toolbarStrip.color = Palette.bg
         contextNameLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         contextNameLabel.textColor = Palette.text
         contextNameLabel.lineBreakMode = .byTruncatingTail
@@ -672,11 +668,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     }
 
     @objc private func toggleProfile() {
-        if viewMode == .tabbed {
-            profileVisible.toggle()
-        } else {
-            profileVisible.toggle()
-        }
+        profileVisible.toggle()
         updateModeButtons()
         updateContentVisibility()
     }
@@ -708,7 +700,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     @objc private func toggleSlideshow() {
         if slideshowTimer == nil {
             openViewer(at: selectedImageIndex)
-            slideshowButton.title = "Stop"
             slideshowButton.isActive = true
             slideshowTimer = Timer.scheduledTimer(withTimeInterval: 2.8, repeats: true) { [weak self] _ in
                 self?.advanceImage(1)
@@ -721,7 +712,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private func stopSlideshow() {
         slideshowTimer?.invalidate()
         slideshowTimer = nil
-        slideshowButton.title = "Slideshow"
         slideshowButton.isActive = false
         slideshowButton.needsDisplay = true
     }
