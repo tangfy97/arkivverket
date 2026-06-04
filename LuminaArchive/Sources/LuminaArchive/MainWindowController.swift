@@ -817,22 +817,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     private func folderSubtitle(for url: URL) -> String {
         let url = url.standardizedFileURL
+        if let model = models.first(where: { $0.url == url }) {
+            let subtitle = "\(model.images.count) images" + (model.profileURL != nil ? " · profile.md" : "")
+            sidebarSubtitleCache[url] = subtitle
+            return subtitle
+        }
+
         if let cached = sidebarSubtitleCache[url] {
             return cached
         }
 
         let profileExists = FileManager.default.fileExists(atPath: url.appendingPathComponent("profile.md").path)
-        let imageCount = (try? FileManager.default.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ).filter { sidebarImageExtensions.contains($0.pathExtension.lowercased()) }.count) ?? 0
-
-        if imageCount == 0, !profileExists {
-            sidebarSubtitleCache[url] = "Folder"
-            return "Folder"
-        }
-        let subtitle = "\(imageCount) images" + (profileExists ? " · profile.md" : "")
+        let subtitle = profileExists ? "profile.md" : "folder"
         sidebarSubtitleCache[url] = subtitle
         return subtitle
     }
