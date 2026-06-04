@@ -11,83 +11,103 @@ enum MarkdownHTMLRenderer {
         <html>
         <head>
           <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
           <style>
             :root {
-              color-scheme: light;
-              --text: #333333;
-              --secondary: #737373;
-              --accent: #5B8C8A;
-              --border: rgba(0,0,0,.10);
-              --surface: #ffffff;
-              --soft: #F8F7F3;
+              --text: #141412;
+              --secondary: #6B6B68;
+              --accent: #3C6F6B;
+              --border: rgba(0,0,0,.06);
+              --surface: #FEFDFB;
+              --soft: #F4F3F0;
+              --rule: rgba(0,0,0,.08);
             }
             html, body {
-              margin: 0;
-              padding: 0;
+              margin: 0; padding: 0;
               background: var(--surface);
               color: var(--text);
-              font: 14px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
-              line-height: 1.55;
+              font: 15px/1.65 -apple-system, "SF Pro Text", sans-serif;
+              -webkit-font-smoothing: antialiased;
             }
-            body { padding: clamp(22px, 5vw, 42px); box-sizing: border-box; }
+            body { padding: 48px 44px 64px; box-sizing: border-box; }
             h1 {
-              font-size: clamp(28px, 7vw, 42px);
-              line-height: 1.08;
-              font-weight: 300;
-              letter-spacing: 0;
-              margin: 0 0 28px;
+              font-size: clamp(36px, 6vw, 52px);
+              line-height: 1.05;
+              font-weight: 200;
+              letter-spacing: -0.02em;
+              margin: 0 0 6px;
+              color: var(--text);
             }
-            h2, h3 {
-              color: var(--accent);
-              font-size: 11px;
-              line-height: 1.3;
+            .subtitle {
+              font-size: 13px;
+              color: var(--secondary);
+              margin: 0 0 40px;
+              font-weight: 400;
+            }
+            h2 {
+              font-size: 9.5px;
               font-weight: 700;
-              letter-spacing: .08em;
+              letter-spacing: 0.14em;
               text-transform: uppercase;
-              margin: 32px 0 10px;
+              color: var(--accent);
+              margin: 40px 0 14px;
+              padding-bottom: 8px;
+              border-bottom: 1px solid var(--rule);
             }
-            p { margin: 0 0 16px; max-width: 68ch; }
-            strong { font-weight: 700; color: #222; }
-            ul { margin: 0 0 18px 1.2em; padding: 0; }
-            li { margin: 6px 0; }
+            h3 {
+              font-size: 9px;
+              font-weight: 600;
+              letter-spacing: 0.10em;
+              text-transform: uppercase;
+              color: var(--secondary);
+              margin: 28px 0 10px;
+            }
+            p { margin: 0 0 14px; max-width: 62ch; }
+            strong { font-weight: 600; color: var(--text); }
+            ul { margin: 0 0 18px; padding: 0 0 0 0; list-style: none; }
+            li {
+              margin: 5px 0;
+              padding-left: 16px;
+              position: relative;
+            }
+            li::before {
+              content: "–";
+              position: absolute;
+              left: 0;
+              color: var(--accent);
+            }
             .table-wrap {
               overflow-x: auto;
-              margin: 18px 0 24px;
-              border: 1px solid var(--border);
-              border-radius: 8px;
-              background: var(--surface);
+              margin: 16px 0 28px;
             }
             table {
               width: 100%;
-              min-width: 420px;
               border-collapse: collapse;
               font-size: 13px;
             }
-            th, td {
-              padding: 10px 12px;
+            th {
               text-align: left;
+              font-size: 9px;
+              font-weight: 700;
+              letter-spacing: 0.10em;
+              text-transform: uppercase;
+              color: var(--secondary);
+              padding: 0 16px 10px 0;
+              border-bottom: 1px solid var(--rule);
+            }
+            td {
+              padding: 9px 16px 9px 0;
               vertical-align: top;
               border-bottom: 1px solid var(--border);
-            }
-            th {
-              background: var(--soft);
-              color: #2f4f4d;
-              font-size: 11px;
-              letter-spacing: .04em;
-              text-transform: uppercase;
+              color: var(--text);
             }
             tr:last-child td { border-bottom: 0; }
             code {
-              padding: 2px 5px;
-              border-radius: 5px;
+              font-family: ui-monospace, "SF Mono", Menlo, monospace;
+              font-size: 0.88em;
               background: var(--soft);
-              font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-              font-size: .92em;
-            }
-            @media (max-width: 420px) {
-              body { padding: 22px; }
-              table { min-width: 360px; }
+              padding: 2px 6px;
+              border-radius: 4px;
             }
           </style>
         </head>
@@ -104,10 +124,13 @@ enum MarkdownHTMLRenderer {
         var paragraph: [String] = []
         var listItems: [String] = []
         var index = 0
+        var subtitlePending = false
 
         func flushParagraph() {
             if !paragraph.isEmpty {
-                html.append("<p>\(inline(paragraph.joined(separator: " ")))</p>")
+                let classAttribute = subtitlePending ? " class=\"subtitle\"" : ""
+                html.append("<p\(classAttribute)>\(inline(paragraph.joined(separator: " ")))</p>")
+                subtitlePending = false
                 paragraph.removeAll()
             }
         }
@@ -132,6 +155,7 @@ enum MarkdownHTMLRenderer {
             if isTableStart(lines, at: index) {
                 flushParagraph()
                 flushList()
+                subtitlePending = false
                 let parsed = parseTable(lines, from: index)
                 html.append(parsed.html)
                 index = parsed.nextIndex
@@ -142,22 +166,28 @@ enum MarkdownHTMLRenderer {
                 flushParagraph()
                 flushList()
                 html.append("<h1>\(inline(String(line.dropFirst(2))))</h1>")
+                subtitlePending = true
             } else if line.hasPrefix("## ") {
                 flushParagraph()
                 flushList()
+                subtitlePending = false
                 html.append("<h2>\(inline(String(line.dropFirst(3))))</h2>")
             } else if line.hasPrefix("### ") {
                 flushParagraph()
                 flushList()
+                subtitlePending = false
                 html.append("<h3>\(inline(String(line.dropFirst(4))))</h3>")
             } else if line.hasPrefix("- ") {
                 flushParagraph()
+                subtitlePending = false
                 listItems.append(inline(String(line.dropFirst(2))))
             } else {
                 flushList()
                 if raw.hasSuffix("  ") {
                     flushParagraph()
-                    html.append("<p>\(inline(line))</p>")
+                    let classAttribute = subtitlePending ? " class=\"subtitle\"" : ""
+                    html.append("<p\(classAttribute)>\(inline(line))</p>")
+                    subtitlePending = false
                 } else {
                     paragraph.append(line)
                 }
