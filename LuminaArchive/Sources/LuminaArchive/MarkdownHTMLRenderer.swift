@@ -121,13 +121,13 @@ enum MarkdownHTMLRenderer {
         var paragraph: [String] = []
         var listItems: [String] = []
         var index = 0
-        var subtitlePending = false
+        var nextParaIsSubtitle = false
 
         func flushParagraph() {
             if !paragraph.isEmpty {
-                let classAttribute = subtitlePending ? " class=\"subtitle\"" : ""
+                let classAttribute = nextParaIsSubtitle ? " class=\"subtitle\"" : ""
                 html.append("<p\(classAttribute)>\(inline(paragraph.joined(separator: " ")))</p>")
-                subtitlePending = false
+                nextParaIsSubtitle = false
                 paragraph.removeAll()
             }
         }
@@ -152,7 +152,7 @@ enum MarkdownHTMLRenderer {
             if isTableStart(lines, at: index) {
                 flushParagraph()
                 flushList()
-                subtitlePending = false
+                nextParaIsSubtitle = false
                 let parsed = parseTable(lines, from: index)
                 html.append(parsed.html)
                 index = parsed.nextIndex
@@ -163,28 +163,28 @@ enum MarkdownHTMLRenderer {
                 flushParagraph()
                 flushList()
                 html.append("<h1>\(inline(String(line.dropFirst(2))))</h1>")
-                subtitlePending = true
+                nextParaIsSubtitle = true
             } else if line.hasPrefix("## ") {
                 flushParagraph()
                 flushList()
-                subtitlePending = false
+                nextParaIsSubtitle = false
                 html.append("<h2>\(inline(String(line.dropFirst(3))))</h2>")
             } else if line.hasPrefix("### ") {
                 flushParagraph()
                 flushList()
-                subtitlePending = false
+                nextParaIsSubtitle = false
                 html.append("<h3>\(inline(String(line.dropFirst(4))))</h3>")
             } else if line.hasPrefix("- ") {
                 flushParagraph()
-                subtitlePending = false
+                nextParaIsSubtitle = false
                 listItems.append(inline(String(line.dropFirst(2))))
             } else {
                 flushList()
                 if raw.hasSuffix("  ") {
                     flushParagraph()
-                    let classAttribute = subtitlePending ? " class=\"subtitle\"" : ""
+                    let classAttribute = nextParaIsSubtitle ? " class=\"subtitle\"" : ""
                     html.append("<p\(classAttribute)>\(inline(line))</p>")
-                    subtitlePending = false
+                    nextParaIsSubtitle = false
                 } else {
                     paragraph.append(line)
                 }
