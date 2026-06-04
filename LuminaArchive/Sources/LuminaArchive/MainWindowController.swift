@@ -29,9 +29,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private let topBar = NSVisualEffectView()
     private let modeControl = NSSegmentedControl(labels: ["Split", "Tabbed", "Fullscreen"], trackingMode: .selectOne, target: nil, action: nil)
     private let openButton = RoundedButton(title: "Choose Library", target: nil, action: nil)
-    private let densityButton = RoundedButton(title: "Spacious", target: nil, action: nil)
-    private let slideshowButton = RoundedButton(title: "Slideshow", target: nil, action: nil)
-    private let profileButton = RoundedButton(title: "Profile", target: nil, action: nil)
+    private let densityButton = IconButton(symbol: "square.grid.fill", tooltip: "Grid density")
+    private let slideshowButton = IconButton(symbol: "play.fill", tooltip: "Slideshow")
+    private let profileButton = IconButton(symbol: "text.alignleft", tooltip: "Profile")
     private let searchField = NSSearchField()
     private let sidebar = NSOutlineView()
     private let sidebarScroll = NSScrollView()
@@ -148,22 +148,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
         densityButton.target = self
         densityButton.action = #selector(toggleDensity)
-        densityButton.fillColor = Palette.hover
-        densityButton.textColor = Palette.text
         rootView.addSubview(densityButton)
 
         slideshowButton.target = self
         slideshowButton.action = #selector(toggleSlideshow)
-        slideshowButton.fillColor = Palette.hover
-        slideshowButton.textColor = Palette.text
-        slideshowButton.activeFillColor = Palette.accent
-        slideshowButton.activeTextColor = .white
         rootView.addSubview(slideshowButton)
 
         profileButton.target = self
         profileButton.action = #selector(toggleProfile)
-        profileButton.fillColor = Palette.hover
-        profileButton.textColor = Palette.text
         rootView.addSubview(profileButton)
     }
 
@@ -357,11 +349,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let toolbarY = contentY + contentHeight - toolbarHeight
         toolbarStrip.frame = NSRect(x: mainX, y: toolbarY, width: max(0, mainWidth), height: toolbarHeight)
 
-        let buttonGap: CGFloat = 10
-        let densityW: CGFloat = 150
-        let slideshowW: CGFloat = 116
-        let profileW: CGFloat = 82
-        let buttonsWidth = densityW + slideshowW + profileW + buttonGap * 2
+        let buttonGap: CGFloat = 6
+        let buttonSide: CGFloat = 36
+        let buttonsWidth = buttonSide * 3 + buttonGap * 2
         let buttonsX = mainX + mainWidth - buttonsWidth - 18
         let searchX = mainX + 24
         let searchWidth = min(240, buttonsX - searchX - 18)
@@ -370,9 +360,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         } else {
             searchField.frame = .zero
         }
-        densityButton.frame = NSRect(x: buttonsX, y: toolbarY + 12, width: densityW, height: 30)
-        slideshowButton.frame = NSRect(x: densityButton.frame.maxX + buttonGap, y: toolbarY + 12, width: slideshowW, height: 30)
-        profileButton.frame = NSRect(x: slideshowButton.frame.maxX + buttonGap, y: toolbarY + 12, width: profileW, height: 30)
+        densityButton.frame = NSRect(x: buttonsX, y: toolbarY + 9, width: buttonSide, height: buttonSide)
+        slideshowButton.frame = NSRect(x: densityButton.frame.maxX + buttonGap, y: toolbarY + 9, width: buttonSide, height: buttonSide)
+        profileButton.frame = NSRect(x: slideshowButton.frame.maxX + buttonGap, y: toolbarY + 9, width: buttonSide, height: buttonSide)
 
         let mainFrame = NSRect(x: mainX, y: contentY, width: mainWidth, height: contentHeight)
         switch viewMode {
@@ -580,11 +570,24 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         profileButton.isActive = profileVisible
         viewerProfileButton.isActive = viewerProfileVisible
         slideshowButton.isActive = slideshowTimer != nil
-        densityButton.title = "Grid: \(density.title)"
+        densityButton.image = NSImage(systemSymbolName: densitySymbolName, accessibilityDescription: "Grid density")?
+            .withSymbolConfiguration(.init(pointSize: 14, weight: .regular))
         densityButton.needsDisplay = true
         slideshowButton.needsDisplay = true
+        profileButton.needsDisplay = true
         viewerProfileButton.needsDisplay = true
         updateViewerLabels()
+    }
+
+    private var densitySymbolName: String {
+        switch density {
+        case .compact:
+            return "square.grid.3x3"
+        case .comfortable:
+            return "square.grid.2x2"
+        case .spacious:
+            return "square.grid.fill"
+        }
     }
 
     private func updateContentVisibility() {
@@ -622,7 +625,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         viewMode = ViewMode(rawValue: modeControl.selectedSegment) ?? .split
         if viewMode == .tabbed {
             profileVisible = false
-            profileButton.title = "Profile"
         }
         if viewMode == .fullscreen {
             openViewer(at: selectedImageIndex)
@@ -645,7 +647,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     @objc private func toggleProfile() {
         if viewMode == .tabbed {
             profileVisible.toggle()
-            profileButton.title = profileVisible ? "Images" : "Profile"
         } else {
             profileVisible.toggle()
         }
