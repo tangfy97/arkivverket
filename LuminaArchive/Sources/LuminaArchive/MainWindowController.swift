@@ -37,6 +37,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private let libraryPathLabel = NSTextField(labelWithString: "No folder selected")
     private let changeLibraryButton = NSButton()
     private let toolbarStrip = BackgroundView()
+    private let contextNameLabel = NSTextField(labelWithString: "")
+    private let contextCountLabel = NSTextField(labelWithString: "")
     private let collectionView = DoubleClickCollectionView()
     private let collectionScroll = NSScrollView()
     private let previewImageView = NSImageView()
@@ -54,8 +56,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private let profileCardView = NSView()
     private let profileWebView = WKWebView()
     private let profileDivider = NSView()
-    private let statusLabel = NSTextField(labelWithString: "")
-    private let pathLabel = NSTextField(labelWithString: "")
     private let emptyLabel = NSTextField(labelWithString: "Drop a folder here, or choose one below")
 
     convenience init() {
@@ -99,7 +99,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         setupPreview()
         setupViewerOverlay()
         setupProfile()
-        setupStatusBar()
         setupEmptyState()
         layoutViews()
         updateModeButtons()
@@ -197,6 +196,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     private func setupToolbarStrip() {
         toolbarStrip.color = Palette.surface
+        contextNameLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        contextNameLabel.textColor = Palette.text
+        contextNameLabel.lineBreakMode = .byTruncatingTail
+        contextCountLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        contextCountLabel.textColor = Palette.tertiary
+        toolbarStrip.addSubview(contextNameLabel)
+        toolbarStrip.addSubview(contextCountLabel)
         rootView.addSubview(toolbarStrip, positioned: .below, relativeTo: searchField)
     }
 
@@ -305,16 +311,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         rootView.addSubview(profileCardView)
     }
 
-    private func setupStatusBar() {
-        statusLabel.font = .systemFont(ofSize: 10, weight: .medium)
-        statusLabel.textColor = Palette.secondary
-        pathLabel.font = .systemFont(ofSize: 10, weight: .medium)
-        pathLabel.textColor = Palette.secondary
-        pathLabel.alignment = .right
-        rootView.addSubview(statusLabel)
-        rootView.addSubview(pathLabel)
-    }
-
     private func setupEmptyState() {
         emptyLabel.font = .systemFont(ofSize: 16, weight: .medium)
         emptyLabel.textColor = Palette.secondary
@@ -339,7 +335,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let bounds = content.bounds
         let isViewer = viewMode == .fullscreen
         let topHeight: CGFloat = isViewer ? 0 : 44
-        let statusHeight: CGFloat = isViewer ? 0 : 26
+        let statusHeight: CGFloat = 0
         let sidebarWidth: CGFloat = viewMode == .fullscreen ? 0 : min(270, max(220, bounds.width * 0.18))
         let profileWidth = currentProfileWidth(for: bounds)
         let gap: CGFloat = 0
@@ -347,9 +343,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         topBar.frame = NSRect(x: 0, y: bounds.height - topHeight, width: bounds.width, height: topHeight)
         modeControl.frame = NSRect(x: (bounds.width - 285) / 2, y: bounds.height - 35, width: 285, height: 26)
         openButton.frame = .zero
-
-        statusLabel.frame = NSRect(x: 14, y: 5, width: bounds.width * 0.45, height: 16)
-        pathLabel.frame = NSRect(x: bounds.width * 0.48, y: 5, width: bounds.width * 0.50 - 18, height: 16)
 
         let contentY = statusHeight
         let contentHeight = bounds.height - topHeight - statusHeight
@@ -373,24 +366,26 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
         let mainX = sidebarWidth + gap
         let mainWidth = bounds.width - sidebarWidth - profileWidth - gap
-        let toolbarHeight: CGFloat = viewMode == .fullscreen ? 0 : 54
+        let toolbarHeight: CGFloat = viewMode == .fullscreen ? 0 : 60
         let toolbarY = contentY + contentHeight - toolbarHeight
         toolbarStrip.frame = NSRect(x: mainX, y: toolbarY, width: max(0, mainWidth), height: toolbarHeight)
+        contextNameLabel.frame = NSRect(x: 20, y: 20, width: 200, height: 19)
+        contextCountLabel.frame = NSRect(x: 20, y: 6, width: 200, height: 15)
 
         let buttonGap: CGFloat = 6
         let buttonSide: CGFloat = 36
         let buttonsWidth = buttonSide * 3 + buttonGap * 2
         let buttonsX = mainX + mainWidth - buttonsWidth - 18
-        let searchX = mainX + 24
-        let searchWidth = min(240, buttonsX - searchX - 18)
+        let searchWidth = min(220, max(160, mainWidth - buttonsWidth - 300))
+        let searchX = mainX + (mainWidth - searchWidth) / 2
         if searchWidth >= 130 {
-            searchField.frame = NSRect(x: searchX, y: toolbarY + 13, width: searchWidth, height: 28)
+            searchField.frame = NSRect(x: searchX, y: toolbarY + 16, width: searchWidth, height: 28)
         } else {
             searchField.frame = .zero
         }
-        densityButton.frame = NSRect(x: buttonsX, y: toolbarY + 9, width: buttonSide, height: buttonSide)
-        slideshowButton.frame = NSRect(x: densityButton.frame.maxX + buttonGap, y: toolbarY + 9, width: buttonSide, height: buttonSide)
-        profileButton.frame = NSRect(x: slideshowButton.frame.maxX + buttonGap, y: toolbarY + 9, width: buttonSide, height: buttonSide)
+        densityButton.frame = NSRect(x: buttonsX, y: toolbarY + 12, width: buttonSide, height: buttonSide)
+        slideshowButton.frame = NSRect(x: densityButton.frame.maxX + buttonGap, y: toolbarY + 12, width: buttonSide, height: buttonSide)
+        profileButton.frame = NSRect(x: slideshowButton.frame.maxX + buttonGap, y: toolbarY + 12, width: buttonSide, height: buttonSide)
 
         let mainFrame = NSRect(x: mainX, y: contentY, width: mainWidth, height: contentHeight)
         switch viewMode {
@@ -592,11 +587,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     }
 
     private func updateStatus() {
-        let modelName = currentModel()?.name ?? "No archive"
-        let selected = filteredImages.isEmpty ? 0 : selectedImageIndex + 1
-        let totalBytes = filteredImages.reduce(Int64(0)) { $0 + $1.byteCount }
-        statusLabel.stringValue = "\(modelName)  ·  \(selected) of \(filteredImages.count)"
-        pathLabel.stringValue = ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
+        contextNameLabel.stringValue = currentModel()?.name ?? ""
+        let count = filteredImages.count
+        contextCountLabel.stringValue = count == 0 ? "" : "\(count) images"
         updateViewerLabels()
     }
 
@@ -635,6 +628,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         previewImageView.isHidden = !hasArchive || !isViewer
         profileCardView.isHidden = !hasArchive || (isViewer ? !viewerProfileVisible : (!profileVisible && viewMode != .tabbed))
         toolbarStrip.isHidden = !hasArchive || isViewer
+        contextNameLabel.isHidden = toolbarStrip.isHidden
+        contextCountLabel.isHidden = toolbarStrip.isHidden
         searchField.isHidden = !hasArchive || isViewer || (viewMode == .tabbed && profileVisible)
         densityButton.isHidden = searchField.isHidden
         slideshowButton.isHidden = !hasArchive || isViewer || (viewMode == .tabbed && profileVisible)
@@ -645,8 +640,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         topBar.isHidden = isViewer
         modeControl.isHidden = isViewer
         openButton.isHidden = hasArchive || isViewer
-        statusLabel.isHidden = isViewer
-        pathLabel.isHidden = isViewer
         for view in [viewerTopBar, viewerBottomBar, viewerTitleLabel, viewerMetaLabel, viewerFileLabel, viewerExitButton, viewerProfileButton, viewerPrevButton, viewerNextButton] {
             view.isHidden = !hasArchive || !isViewer
         }
