@@ -200,10 +200,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     private func setupCollection() {
         let layout = NSCollectionViewFlowLayout()
-        layout.minimumInteritemSpacing = 24
-        layout.minimumLineSpacing = 28
-        layout.sectionInset = NSEdgeInsets(top: 28, left: 28, bottom: 28, right: 28)
-        layout.itemSize = NSSize(width: density.itemSide, height: density.itemSide + 26)
+        layout.minimumInteritemSpacing = 20
+        layout.minimumLineSpacing = 24
+        layout.sectionInset = NSEdgeInsets(top: 24, left: 24, bottom: 24, right: 24)
+        layout.itemSize = NSSize(width: density.itemSide, height: density.itemSide + 28)
 
         collectionView.collectionViewLayout = layout
         collectionView.register(ImageCollectionItem.self, forItemWithIdentifier: ImageCollectionItem.identifier)
@@ -642,7 +642,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     @objc private func toggleDensity() {
         density = density.next
         if let layout = collectionView.collectionViewLayout as? NSCollectionViewFlowLayout {
-            layout.itemSize = NSSize(width: density.itemSide, height: density.itemSide + 26)
+            layout.itemSize = NSSize(width: density.itemSide, height: density.itemSide + 28)
             layout.invalidateLayout()
         }
         collectionView.reloadData()

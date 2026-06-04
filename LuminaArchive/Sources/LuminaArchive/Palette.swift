@@ -1,7 +1,9 @@
 import AppKit
 
 enum Palette {
-    static let bg = NSColor(srgbRed: 0.957, green: 0.953, blue: 0.941, alpha: 1)
+    static let bg = NSColor(srgbRed: 0.898, green: 0.890, blue: 0.874, alpha: 1)
+    static let card = NSColor.white
+    static let cardShadowColor = NSColor(calibratedWhite: 0, alpha: 0.10)
     static let surface = NSColor(srgbRed: 0.994, green: 0.992, blue: 0.988, alpha: 1)
     static let elevated = NSColor(srgbRed: 0.969, green: 0.965, blue: 0.953, alpha: 1)
     static let hover = NSColor(srgbRed: 0.918, green: 0.914, blue: 0.902, alpha: 1)
