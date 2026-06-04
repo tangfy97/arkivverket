@@ -571,7 +571,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let selected = filteredImages.isEmpty ? 0 : selectedImageIndex + 1
         let totalBytes = filteredImages.reduce(Int64(0)) { $0 + $1.byteCount }
         countLabel.stringValue = "\(filteredImages.count) items"
-        statusLabel.stringValue = "\(modelName)   \(selected) of \(filteredImages.count)   \(ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file))"
+        statusLabel.stringValue = "\(modelName)  ·  \(selected) of \(filteredImages.count)"
+        pathLabel.stringValue = ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
         updateViewerLabels()
     }
 
