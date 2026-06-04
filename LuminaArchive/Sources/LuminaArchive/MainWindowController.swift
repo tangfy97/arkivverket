@@ -35,6 +35,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private let searchField = NSSearchField()
     private let sidebar = NSOutlineView()
     private let sidebarScroll = NSScrollView()
+    private let sidebarDivider = NSView()
     private let libraryTitleLabel = NSTextField(labelWithString: "Library")
     private let libraryPathLabel = NSTextField(labelWithString: "No folder selected")
     private let changeLibraryButton = RoundedButton(title: "Change...", target: nil, action: nil)
@@ -52,6 +53,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private let viewerPrevButton = RoundedButton(title: "‹", target: nil, action: nil)
     private let viewerNextButton = RoundedButton(title: "›", target: nil, action: nil)
     private let profileWebView = WKWebView()
+    private let profileDivider = NSView()
     private let statusLabel = NSTextField(labelWithString: "")
     private let pathLabel = NSTextField(labelWithString: "")
     private let titleLabel = NSTextField(labelWithString: "Lumina Archive")
@@ -93,6 +95,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
         setupTopBar()
         setupSidebar()
+        setupDividers()
         setupToolbarStrip()
         setupCollection()
         setupPreview()
@@ -192,6 +195,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         rootView.addSubview(libraryTitleLabel)
         rootView.addSubview(libraryPathLabel)
         rootView.addSubview(changeLibraryButton)
+    }
+
+    private func setupDividers() {
+        for divider in [sidebarDivider, profileDivider] {
+            divider.wantsLayer = true
+            divider.layer?.backgroundColor = Palette.border.cgColor
+            rootView.addSubview(divider, positioned: .above, relativeTo: nil)
+        }
     }
 
     private func setupToolbarStrip() {
@@ -317,12 +328,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let topHeight: CGFloat = isViewer ? 0 : 48
         let statusHeight: CGFloat = isViewer ? 0 : 26
         let sidebarWidth: CGFloat = viewMode == .fullscreen ? 0 : min(250, max(210, bounds.width * 0.18))
-        let profileWidth: CGFloat
-        if isViewer {
-            profileWidth = viewerProfileVisible ? min(380, max(320, bounds.width * 0.28)) : 0
-        } else {
-            profileWidth = (profileVisible && viewMode != .tabbed) ? min(360, max(300, bounds.width * 0.25)) : 0
-        }
+        let profileWidth = currentProfileWidth(for: bounds)
         let gap: CGFloat = 0
 
         topBar.frame = NSRect(x: 0, y: bounds.height - topHeight, width: bounds.width, height: topHeight)
@@ -340,9 +346,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         libraryPathLabel.frame = NSRect(x: 18, y: contentY + contentHeight - 43, width: max(80, sidebarWidth - 36), height: 14)
         changeLibraryButton.frame = NSRect(x: max(18, sidebarWidth - 98), y: contentY + contentHeight - 34, width: 82, height: 26)
         sidebarScroll.frame = NSRect(x: 0, y: contentY, width: sidebarWidth, height: max(0, contentHeight - sidebarHeaderHeight))
+        sidebarDivider.frame = NSRect(x: sidebarWidth, y: contentY, width: 1, height: contentHeight)
 
         let rightX = bounds.width - profileWidth
         profileWebView.frame = NSRect(x: rightX, y: contentY, width: profileWidth, height: contentHeight)
+        profileDivider.frame = profileWidth > 0 ? NSRect(x: rightX - 1, y: contentY, width: 1, height: contentHeight) : .zero
 
         let mainX = sidebarWidth + gap
         let mainWidth = bounds.width - sidebarWidth - profileWidth - gap
@@ -387,6 +395,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         if !emptyLabel.isHidden {
             openButton.frame = NSRect(x: bounds.midX - 72, y: contentY + contentHeight / 2 - 34, width: 144, height: 32)
         }
+    }
+
+    private func currentProfileWidth(for bounds: NSRect) -> CGFloat {
+        if viewMode == .fullscreen {
+            return viewerProfileVisible ? min(380, max(320, bounds.width * 0.28)) : 0
+        }
+        return (profileVisible && viewMode != .tabbed) ? min(360, max(300, bounds.width * 0.25)) : 0
     }
 
     private func layoutViewerOverlay(bounds: NSRect, profileWidth: CGFloat) {
@@ -587,6 +602,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         densityButton.isHidden = searchField.isHidden
         slideshowButton.isHidden = !hasArchive || isViewer || (viewMode == .tabbed && profileVisible)
         profileButton.isHidden = !hasArchive || isViewer
+        let profileWidth = window?.contentView.map { currentProfileWidth(for: $0.bounds) } ?? 0
+        sidebarDivider.isHidden = !hasArchive || isViewer
+        profileDivider.isHidden = !hasArchive || isViewer || profileWidth == 0
         topBar.isHidden = isViewer
         titleLabel.isHidden = isViewer
         modeControl.isHidden = isViewer
