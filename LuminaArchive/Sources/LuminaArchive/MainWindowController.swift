@@ -36,9 +36,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private let sidebar = NSOutlineView()
     private let sidebarScroll = NSScrollView()
     private let sidebarDivider = NSView()
-    private let libraryTitleLabel = NSTextField(labelWithString: "Library")
     private let libraryPathLabel = NSTextField(labelWithString: "No folder selected")
-    private let changeLibraryButton = RoundedButton(title: "Change...", target: nil, action: nil)
+    private let changeLibraryButton = NSButton()
     private let toolbarStrip = BackgroundView()
     private let collectionView = DoubleClickCollectionView()
     private let collectionScroll = NSScrollView()
@@ -173,9 +172,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         sidebar.addTableColumn(column)
         sidebar.outlineTableColumn = column
         sidebar.headerView = nil
-        sidebar.rowHeight = 42
+        sidebar.rowHeight = 56
         sidebar.backgroundColor = Palette.elevated
-        sidebar.selectionHighlightStyle = .regular
+        sidebar.selectionHighlightStyle = .none
         sidebar.dataSource = self
         sidebar.delegate = self
         sidebarScroll.documentView = sidebar
@@ -183,16 +182,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         sidebarScroll.drawsBackground = false
         rootView.addSubview(sidebarScroll)
 
-        libraryTitleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
-        libraryTitleLabel.textColor = Palette.text
-        libraryPathLabel.font = .systemFont(ofSize: 10, weight: .medium)
+        libraryPathLabel.font = .systemFont(ofSize: 12, weight: .medium)
         libraryPathLabel.textColor = Palette.secondary
         libraryPathLabel.lineBreakMode = .byTruncatingMiddle
         changeLibraryButton.target = self
         changeLibraryButton.action = #selector(openFolder)
-        changeLibraryButton.fillColor = Palette.surface
-        changeLibraryButton.textColor = Palette.text
-        rootView.addSubview(libraryTitleLabel)
+        changeLibraryButton.bezelStyle = .regularSquare
+        changeLibraryButton.isBordered = false
+        changeLibraryButton.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: "Change library")?
+            .withSymbolConfiguration(.init(pointSize: 14, weight: .regular))
+        changeLibraryButton.imageScaling = .scaleNone
+        changeLibraryButton.toolTip = "Choose library"
         rootView.addSubview(libraryPathLabel)
         rootView.addSubview(changeLibraryButton)
     }
@@ -327,7 +327,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let isViewer = viewMode == .fullscreen
         let topHeight: CGFloat = isViewer ? 0 : 48
         let statusHeight: CGFloat = isViewer ? 0 : 26
-        let sidebarWidth: CGFloat = viewMode == .fullscreen ? 0 : min(250, max(210, bounds.width * 0.18))
+        let sidebarWidth: CGFloat = viewMode == .fullscreen ? 0 : min(270, max(220, bounds.width * 0.18))
         let profileWidth = currentProfileWidth(for: bounds)
         let gap: CGFloat = 0
 
@@ -341,10 +341,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
         let contentY = statusHeight
         let contentHeight = bounds.height - topHeight - statusHeight
-        let sidebarHeaderHeight: CGFloat = viewMode == .fullscreen ? 0 : 58
-        libraryTitleLabel.frame = NSRect(x: 18, y: contentY + contentHeight - 25, width: max(80, sidebarWidth - 128), height: 16)
-        libraryPathLabel.frame = NSRect(x: 18, y: contentY + contentHeight - 43, width: max(80, sidebarWidth - 36), height: 14)
-        changeLibraryButton.frame = NSRect(x: max(18, sidebarWidth - 98), y: contentY + contentHeight - 34, width: 82, height: 26)
+        let sidebarHeaderHeight: CGFloat = viewMode == .fullscreen ? 0 : 46
+        libraryPathLabel.frame = NSRect(x: 16, y: contentY + contentHeight - 32, width: max(80, sidebarWidth - 62), height: 18)
+        changeLibraryButton.frame = NSRect(x: max(16, sidebarWidth - 44), y: contentY + contentHeight - 38, width: 30, height: 30)
         sidebarScroll.frame = NSRect(x: 0, y: contentY, width: sidebarWidth, height: max(0, contentHeight - sidebarHeaderHeight))
         sidebarDivider.frame = NSRect(x: sidebarWidth, y: contentY, width: 1, height: contentHeight)
 
@@ -474,7 +473,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         selectBrowserURL(displayURL)
         loadSelectedModel()
         updateContentVisibility()
-        libraryPathLabel.stringValue = rootURL.path
+        libraryPathLabel.stringValue = rootURL.lastPathComponent
         pathLabel.stringValue = displayURL.path
         window?.title = "Lumina Archive - \(rootURL.lastPathComponent)"
     }
@@ -592,7 +591,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let hasArchive = !models.isEmpty
         let isViewer = viewMode == .fullscreen
         sidebarScroll.isHidden = !hasArchive || isViewer
-        libraryTitleLabel.isHidden = !hasArchive || isViewer
         libraryPathLabel.isHidden = !hasArchive || isViewer
         changeLibraryButton.isHidden = !hasArchive || isViewer
         collectionScroll.isHidden = !hasArchive || isViewer || (viewMode == .tabbed && profileVisible)
@@ -807,6 +805,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         guard let node = item as? FolderNode else { return view }
         view.title.stringValue = node.name
         view.subtitle.stringValue = folderSubtitle(for: node.url)
+        view.isHighlighted = outlineView.row(forItem: item) == outlineView.selectedRow
         return view
     }
 
@@ -837,6 +836,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let row = sidebar.selectedRow
         guard row >= 0, let node = sidebar.item(atRow: row) as? FolderNode else { return }
         openArchive(node.url, resetBrowser: false)
+        sidebar.reloadData()
     }
 
     private func handleKey(_ event: NSEvent) -> Bool {
