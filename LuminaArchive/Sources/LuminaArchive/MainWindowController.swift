@@ -64,7 +64,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
             backing: .buffered,
             defer: false
         )
-        window.title = "Lumina Archive"
+        window.title = "Arkiv"
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = false
@@ -472,7 +472,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         loadSelectedModel()
         updateContentVisibility()
         libraryPathLabel.stringValue = rootURL.lastPathComponent
-        window?.title = "Lumina Archive - \(rootURL.lastPathComponent)"
+        window?.title = "Arkiv — \(rootURL.lastPathComponent)"
     }
 
     private func selectBrowserURL(_ url: URL) {

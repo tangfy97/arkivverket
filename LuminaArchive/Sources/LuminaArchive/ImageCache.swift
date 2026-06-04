@@ -8,7 +8,7 @@ final class ImageCache {
     private let previewCache = NSCache<NSURL, NSImage>()
     private let queue: OperationQueue = {
         let queue = OperationQueue()
-        queue.name = "LuminaArchive.ImageDecode"
+        queue.name = "net.arkivverket.arkiv.ImageDecode"
         queue.qualityOfService = .userInitiated
         queue.maxConcurrentOperationCount = 5
         return queue

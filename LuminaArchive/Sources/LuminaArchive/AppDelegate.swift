@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(fileItem)
 
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Quit Lumina Archive", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Quit Arkiv", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
 
         let fileMenu = NSMenu(title: "File")

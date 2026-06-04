@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT="$ROOT/LuminaArchive"
 DIST="$ROOT/dist"
-APP="$DIST/Lumina Archive.app"
+APP="$DIST/Arkiv.app"
 CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
@@ -17,9 +17,20 @@ swift build --package-path "$PROJECT" -c release
 
 rm -rf "$APP"
 mkdir -p "$MACOS" "$RESOURCES"
-cp "$PROJECT/.build/release/LuminaArchive" "$MACOS/LuminaArchive"
+
+# Binary — renamed to match CFBundleExecutable = Arkiv
+cp "$PROJECT/.build/release/LuminaArchive" "$MACOS/Arkiv"
+
+# Plist & PkgInfo
 cp "$PROJECT/Resources/Info.plist" "$CONTENTS/Info.plist"
 printf 'APPL????' > "$CONTENTS/PkgInfo"
+
+# Icon
+cp "$PROJECT/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
+
 codesign --force --deep --sign - "$APP" >/dev/null
+
+# Remove quarantine so macOS doesn't block launch on this machine
+xattr -cr "$APP" 2>/dev/null || true
 
 echo "$APP"

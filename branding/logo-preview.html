@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arkiv — Brand Identity</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --cream:   #F5F3EE;
+    --warm:    #EDE9E0;
+    --teal:    #2D5E5A;
+    --teal-mid:#3C6F6B;
+    --teal-lt: #6A9E9A;
+    --teal-xs: #B8D4D2;
+    --text:    #141412;
+    --soft:    #7A7870;
+    --rule:    rgba(0,0,0,.08);
+  }
+
+  html { background: var(--cream); color: var(--text); }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 400;
+    min-height: 100vh;
+    padding: 80px 60px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  /* ─── hero ─── */
+  .hero {
+    display: flex;
+    align-items: center;
+    gap: 64px;
+    padding: 80px 0 96px;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .icon-wrap {
+    flex-shrink: 0;
+  }
+
+  .hero-text h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 96px;
+    line-height: 0.92;
+    letter-spacing: -0.03em;
+    color: var(--teal);
+    margin-bottom: 20px;
+  }
+
+  .hero-text h1 em {
+    font-style: italic;
+    color: var(--teal-lt);
+  }
+
+  .hero-text p {
+    font-size: 17px;
+    line-height: 1.6;
+    color: var(--soft);
+    max-width: 42ch;
+    font-weight: 300;
+    letter-spacing: 0.01em;
+  }
+
+  /* ─── section ─── */
+  section {
+    padding: 80px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .section-label {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--teal-mid);
+    margin-bottom: 40px;
+  }
+
+  /* ─── icon sizes ─── */
+  .sizes {
+    display: flex;
+    align-items: flex-end;
+    gap: 40px;
+    flex-wrap: wrap;
+  }
+
+  .size-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .size-label {
+    font-size: 10px;
+    color: var(--soft);
+    letter-spacing: 0.06em;
+  }
+
+  /* ─── colors ─── */
+  .swatches {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .swatch {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .swatch-color {
+    width: 88px;
+    height: 88px;
+    border-radius: 14px;
+  }
+
+  .swatch-name {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text);
+  }
+  .swatch-hex {
+    font-size: 10px;
+    color: var(--soft);
+    letter-spacing: 0.04em;
+  }
+
+  /* ─── type ─── */
+  .type-demo {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  .type-row {
+    display: flex;
+    align-items: baseline;
+    gap: 32px;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 24px;
+  }
+
+  .type-spec {
+    width: 160px;
+    flex-shrink: 0;
+    font-size: 10px;
+    color: var(--soft);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  /* ─── dark card ─── */
+  .dark-demo {
+    background: #0A0A0B;
+    border-radius: 20px;
+    padding: 60px;
+    display: flex;
+    align-items: center;
+    gap: 48px;
+    margin-top: 48px;
+  }
+
+  .dark-demo p {
+    color: rgba(255,255,255,0.55);
+    font-size: 14px;
+    line-height: 1.7;
+    font-weight: 300;
+    max-width: 40ch;
+  }
+
+  .dark-demo strong {
+    color: rgba(255,255,255,0.9);
+    font-weight: 400;
+  }
+
+</style>
+</head>
+<body>
+
+<!-- ══════════ HERO ══════════ -->
+<div class="hero">
+  <div class="icon-wrap">
+    <!-- 512px icon -->
+    <svg width="180" height="180" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- squircle bg -->
+      <rect width="512" height="512" rx="115" fill="#F5F3EE"/>
+      <!-- subtle inner shadow at top -->
+      <rect width="512" height="512" rx="115" fill="url(#topSheen)"/>
+
+      <!-- ╔══════════════════╗ -->
+      <!-- ║  THE ARKIV MARK  ║ -->
+      <!-- ╚══════════════════╝ -->
+
+      <!-- Sidebar column: one thin tall rect -->
+      <rect x="118" y="154" width="48" height="204" rx="10" fill="#2D5E5A"/>
+
+      <!-- Divider gap then image grid (2×3) -->
+      <!-- Row 1 -->
+      <rect x="190" y="154" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.85"/>
+      <rect x="270" y="154" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.55"/>
+      <!-- Row 2 -->
+      <rect x="190" y="232" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.40"/>
+      <rect x="270" y="232" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.70"/>
+      <!-- Row 3 -->
+      <rect x="190" y="310" width="68" height="48" rx="9" fill="#2D5E5A" opacity="0.60"/>
+      <rect x="270" y="310" width="68" height="48" rx="9" fill="#2D5E5A" opacity="0.35"/>
+
+      <!-- Profile column: text lines -->
+      <rect x="360" y="170" width="34" height="11" rx="5.5" fill="#2D5E5A" opacity="0.90"/>
+      <rect x="360" y="192" width="34" height="11" rx="5.5" fill="#2D5E5A" opacity="0.65"/>
+      <rect x="360" y="222" width="34" height="8" rx="4" fill="#2D5E5A" opacity="0.45"/>
+      <rect x="360" y="238" width="28" height="8" rx="4" fill="#2D5E5A" opacity="0.35"/>
+      <rect x="360" y="254" width="34" height="8" rx="4" fill="#2D5E5A" opacity="0.30"/>
+      <rect x="360" y="278" width="22" height="8" rx="4" fill="#2D5E5A" opacity="0.45"/>
+      <rect x="360" y="294" width="34" height="8" rx="4" fill="#2D5E5A" opacity="0.35"/>
+      <rect x="360" y="318" width="28" height="8" rx="4" fill="#2D5E5A" opacity="0.55"/>
+      <rect x="360" y="334" width="20" height="8" rx="4" fill="#2D5E5A" opacity="0.30"/>
+
+      <defs>
+        <linearGradient id="topSheen" x1="256" y1="0" x2="256" y2="160" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="white" stop-opacity="0.06"/>
+          <stop offset="1" stop-color="white" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+    </svg>
+  </div>
+
+  <div class="hero-text">
+    <h1>Ark<em>iv</em></h1>
+    <p>A native macOS viewer for local model archives — image browsing and markdown profiles, together in one refined interface.</p>
+  </div>
+</div>
+
+<!-- ══════════ ICON SIZES ══════════ -->
+<section>
+  <div class="section-label">Icon at scale</div>
+  <div class="sizes">
+
+    <!-- 512 -->
+    <div class="size-item">
+      <svg width="128" height="128" viewBox="0 0 512 512" fill="none">
+        <rect width="512" height="512" rx="115" fill="#F5F3EE"/>
+        <rect x="118" y="154" width="48" height="204" rx="10" fill="#2D5E5A"/>
+        <rect x="190" y="154" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.85"/>
+        <rect x="270" y="154" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.55"/>
+        <rect x="190" y="232" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.40"/>
+        <rect x="270" y="232" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.70"/>
+        <rect x="190" y="310" width="68" height="48" rx="9" fill="#2D5E5A" opacity="0.60"/>
+        <rect x="270" y="310" width="68" height="48" rx="9" fill="#2D5E5A" opacity="0.35"/>
+        <rect x="360" y="170" width="34" height="11" rx="5.5" fill="#2D5E5A" opacity="0.90"/>
+        <rect x="360" y="192" width="34" height="11" rx="5.5" fill="#2D5E5A" opacity="0.65"/>
+        <rect x="360" y="222" width="34" height="8" rx="4" fill="#2D5E5A" opacity="0.45"/>
+        <rect x="360" y="238" width="28" height="8" rx="4" fill="#2D5E5A" opacity="0.35"/>
+        <rect x="360" y="254" width="34" height="8" rx="4" fill="#2D5E5A" opacity="0.30"/>
+        <rect x="360" y="278" width="22" height="8" rx="4" fill="#2D5E5A" opacity="0.45"/>
+        <rect x="360" y="294" width="34" height="8" rx="4" fill="#2D5E5A" opacity="0.35"/>
+        <rect x="360" y="318" width="28" height="8" rx="4" fill="#2D5E5A" opacity="0.55"/>
+        <rect x="360" y="334" width="20" height="8" rx="4" fill="#2D5E5A" opacity="0.30"/>
+      </svg>
+      <span class="size-label">128px</span>
+    </div>
+
+    <!-- 64 -->
+    <div class="size-item">
+      <svg width="64" height="64" viewBox="0 0 512 512" fill="none">
+        <rect width="512" height="512" rx="115" fill="#F5F3EE"/>
+        <rect x="118" y="154" width="48" height="204" rx="10" fill="#2D5E5A"/>
+        <rect x="190" y="154" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.85"/>
+        <rect x="270" y="154" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.55"/>
+        <rect x="190" y="232" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.40"/>
+        <rect x="270" y="232" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.70"/>
+        <rect x="190" y="310" width="68" height="48" rx="9" fill="#2D5E5A" opacity="0.60"/>
+        <rect x="270" y="310" width="68" height="48" rx="9" fill="#2D5E5A" opacity="0.35"/>
+        <rect x="360" y="170" width="34" height="11" rx="5.5" fill="#2D5E5A" opacity="0.90"/>
+        <rect x="360" y="192" width="34" height="11" rx="5.5" fill="#2D5E5A" opacity="0.65"/>
+        <rect x="360" y="222" width="34" height="8" rx="4" fill="#2D5E5A" opacity="0.45"/>
+        <rect x="360" y="238" width="28" height="8" rx="4" fill="#2D5E5A" opacity="0.35"/>
+        <rect x="360" y="254" width="34" height="8" rx="4" fill="#2D5E5A" opacity="0.30"/>
+      </svg>
+      <span class="size-label">64px</span>
+    </div>
+
+    <!-- 32 -->
+    <div class="size-item">
+      <svg width="32" height="32" viewBox="0 0 512 512" fill="none">
+        <rect width="512" height="512" rx="115" fill="#F5F3EE"/>
+        <rect x="118" y="154" width="48" height="204" rx="10" fill="#2D5E5A"/>
+        <rect x="190" y="154" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.85"/>
+        <rect x="270" y="154" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.55"/>
+        <rect x="190" y="232" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.40"/>
+        <rect x="270" y="232" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.70"/>
+        <rect x="190" y="310" width="68" height="48" rx="9" fill="#2D5E5A" opacity="0.60"/>
+        <rect x="270" y="310" width="68" height="48" rx="9" fill="#2D5E5A" opacity="0.35"/>
+        <rect x="360" y="170" width="34" height="11" rx="5.5" fill="#2D5E5A" opacity="0.90"/>
+        <rect x="360" y="192" width="34" height="11" rx="5.5" fill="#2D5E5A" opacity="0.65"/>
+      </svg>
+      <span class="size-label">32px</span>
+    </div>
+
+    <!-- 16 -->
+    <div class="size-item">
+      <svg width="16" height="16" viewBox="0 0 512 512" fill="none">
+        <rect width="512" height="512" rx="115" fill="#F5F3EE"/>
+        <rect x="118" y="154" width="48" height="204" rx="10" fill="#2D5E5A"/>
+        <rect x="190" y="154" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.85"/>
+        <rect x="270" y="154" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.55"/>
+        <rect x="190" y="232" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.40"/>
+        <rect x="270" y="232" width="68" height="68" rx="9" fill="#2D5E5A" opacity="0.70"/>
+        <rect x="190" y="310" width="68" height="48" rx="9" fill="#2D5E5A" opacity="0.60"/>
+        <rect x="270" y="310" width="68" height="48" rx="9" fill="#2D5E5A" opacity="0.35"/>
+      </svg>
+      <span class="size-label">16px</span>
+    </div>
+
+    <!-- dark bg version -->
+    <div class="size-item" style="margin-left:40px">
+      <svg width="128" height="128" viewBox="0 0 512 512" fill="none">
+        <rect width="512" height="512" rx="115" fill="#1A1A1C"/>
+        <rect x="118" y="154" width="48" height="204" rx="10" fill="#6A9E9A"/>
+        <rect x="190" y="154" width="68" height="68" rx="9" fill="#6A9E9A" opacity="0.85"/>
+        <rect x="270" y="154" width="68" height="68" rx="9" fill="#6A9E9A" opacity="0.55"/>
+        <rect x="190" y="232" width="68" height="68" rx="9" fill="#6A9E9A" opacity="0.40"/>
+        <rect x="270" y="232" width="68" height="68" rx="9" fill="#6A9E9A" opacity="0.70"/>
+        <rect x="190" y="310" width="68" height="48" rx="9" fill="#6A9E9A" opacity="0.60"/>
+        <rect x="270" y="310" width="68" height="48" rx="9" fill="#6A9E9A" opacity="0.35"/>
+        <rect x="360" y="170" width="34" height="11" rx="5.5" fill="#6A9E9A" opacity="0.90"/>
+        <rect x="360" y="192" width="34" height="11" rx="5.5" fill="#6A9E9A" opacity="0.65"/>
+        <rect x="360" y="222" width="34" height="8" rx="4" fill="#6A9E9A" opacity="0.45"/>
+        <rect x="360" y="238" width="28" height="8" rx="4" fill="#6A9E9A" opacity="0.35"/>
+        <rect x="360" y="254" width="34" height="8" rx="4" fill="#6A9E9A" opacity="0.30"/>
+        <rect x="360" y="278" width="22" height="8" rx="4" fill="#6A9E9A" opacity="0.45"/>
+        <rect x="360" y="294" width="34" height="8" rx="4" fill="#6A9E9A" opacity="0.35"/>
+        <rect x="360" y="318" width="28" height="8" rx="4" fill="#6A9E9A" opacity="0.55"/>
+        <rect x="360" y="334" width="20" height="8" rx="4" fill="#6A9E9A" opacity="0.30"/>
+      </svg>
+      <span class="size-label">dark variant</span>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══════════ COLOR PALETTE ══════════ -->
+<section>
+  <div class="section-label">Colour palette</div>
+  <div class="swatches">
+    <div class="swatch">
+      <div class="swatch-color" style="background:#F5F3EE; border:1px solid rgba(0,0,0,.08)"></div>
+      <div class="swatch-name">Cream</div>
+      <div class="swatch-hex">#F5F3EE</div>
+    </div>
+    <div class="swatch">
+      <div class="swatch-color" style="background:#EDE9E0"></div>
+      <div class="swatch-name">Warm Sand</div>
+      <div class="swatch-hex">#EDE9E0</div>
+    </div>
+    <div class="swatch">
+      <div class="swatch-color" style="background:#B8D4D2"></div>
+      <div class="swatch-name">Fog</div>
+      <div class="swatch-hex">#B8D4D2</div>
+    </div>
+    <div class="swatch">
+      <div class="swatch-color" style="background:#6A9E9A"></div>
+      <div class="swatch-name">Sea</div>
+      <div class="swatch-hex">#6A9E9A</div>
+    </div>
+    <div class="swatch">
+      <div class="swatch-color" style="background:#3C6F6B"></div>
+      <div class="swatch-name">Slate</div>
+      <div class="swatch-hex">#3C6F6B</div>
+    </div>
+    <div class="swatch">
+      <div class="swatch-color" style="background:#2D5E5A"></div>
+      <div class="swatch-name">Deep</div>
+      <div class="swatch-hex">#2D5E5A</div>
+    </div>
+    <div class="swatch">
+      <div class="swatch-color" style="background:#141412"></div>
+      <div class="swatch-name">Ink</div>
+      <div class="swatch-hex">#141412</div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ TYPOGRAPHY ══════════ -->
+<section>
+  <div class="section-label">Typography</div>
+  <div class="type-demo">
+    <div class="type-row">
+      <div class="type-spec">Display · Serif</div>
+      <span style="font-family:'DM Serif Display',serif; font-size:52px; letter-spacing:-0.03em; color:var(--teal)">Arkiv</span>
+    </div>
+    <div class="type-row">
+      <div class="type-spec">UI · Sans 300</div>
+      <span style="font-family:'DM Sans',sans-serif; font-weight:300; font-size:24px; color:var(--text)">Profile viewer for local archives</span>
+    </div>
+    <div class="type-row">
+      <div class="type-spec">UI · Sans 500</div>
+      <span style="font-family:'DM Sans',sans-serif; font-weight:500; font-size:16px; color:var(--text)">BASIC DATA · 基本数据</span>
+    </div>
+    <div class="type-row">
+      <div class="type-spec">Label · Monospace</div>
+      <span style="font-family:ui-monospace,'SF Mono',monospace; font-size:13px; color:var(--soft)">001 / 118</span>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ DARK CONTEXT ══════════ -->
+<section style="border-bottom:none">
+  <div class="section-label">In context</div>
+  <div class="dark-demo">
+    <svg width="72" height="72" viewBox="0 0 512 512" fill="none">
+      <rect width="512" height="512" rx="115" fill="#1A1A1C"/>
+      <rect x="118" y="154" width="48" height="204" rx="10" fill="#6A9E9A"/>
+      <rect x="190" y="154" width="68" height="68" rx="9" fill="#6A9E9A" opacity="0.85"/>
+      <rect x="270" y="154" width="68" height="68" rx="9" fill="#6A9E9A" opacity="0.55"/>
+      <rect x="190" y="232" width="68" height="68" rx="9" fill="#6A9E9A" opacity="0.40"/>
+      <rect x="270" y="232" width="68" height="68" rx="9" fill="#6A9E9A" opacity="0.70"/>
+      <rect x="190" y="310" width="68" height="48" rx="9" fill="#6A9E9A" opacity="0.60"/>
+      <rect x="270" y="310" width="68" height="48" rx="9" fill="#6A9E9A" opacity="0.35"/>
+      <rect x="360" y="170" width="34" height="11" rx="5.5" fill="#6A9E9A" opacity="0.90"/>
+      <rect x="360" y="192" width="34" height="11" rx="5.5" fill="#6A9E9A" opacity="0.65"/>
+      <rect x="360" y="222" width="34" height="8" rx="4" fill="#6A9E9A" opacity="0.45"/>
+      <rect x="360" y="238" width="28" height="8" rx="4" fill="#6A9E9A" opacity="0.35"/>
+    </svg>
+    <div>
+      <strong>Arkiv looks at home on macOS</strong>
+      <p>The dark viewer mode uses the same teal language at reduced saturation — the icon's light variant lives naturally on the Dock against any wallpaper.</p>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>
