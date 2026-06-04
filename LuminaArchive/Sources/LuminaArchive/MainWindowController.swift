@@ -51,6 +51,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private let viewerProfileButton = RoundedButton(title: "Profile", target: nil, action: nil)
     private let viewerPrevButton = RoundedButton(title: "‹", target: nil, action: nil)
     private let viewerNextButton = RoundedButton(title: "›", target: nil, action: nil)
+    private let profileCardView = NSView()
     private let profileWebView = WKWebView()
     private let profileDivider = NSView()
     private let statusLabel = NSTextField(labelWithString: "")
@@ -285,10 +286,22 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     }
 
     private func setupProfile() {
+        profileCardView.wantsLayer = true
+        profileCardView.layer?.backgroundColor = Palette.card.cgColor
+        profileCardView.layer?.cornerRadius = 12
+        profileCardView.layer?.shadowColor = NSColor.black.cgColor
+        profileCardView.layer?.shadowOpacity = 0.08
+        profileCardView.layer?.shadowOffset = CGSize(width: 0, height: -2)
+        profileCardView.layer?.shadowRadius = 10
+        profileCardView.layer?.masksToBounds = false
+
         profileWebView.setValue(false, forKey: "drawsBackground")
         profileWebView.wantsLayer = true
-        profileWebView.layer?.backgroundColor = Palette.surface.cgColor
-        rootView.addSubview(profileWebView)
+        profileWebView.layer?.cornerRadius = 12
+        profileWebView.layer?.masksToBounds = true
+        profileWebView.layer?.backgroundColor = Palette.card.cgColor
+        profileCardView.addSubview(profileWebView)
+        rootView.addSubview(profileCardView)
     }
 
     private func setupStatusBar() {
@@ -346,7 +359,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         sidebarDivider.frame = NSRect(x: sidebarWidth, y: contentY, width: 1, height: contentHeight)
 
         let rightX = bounds.width - profileWidth
-        profileWebView.frame = NSRect(x: rightX, y: contentY, width: profileWidth, height: contentHeight)
+        let cardInset: CGFloat = 8
+        profileCardView.frame = NSRect(
+            x: rightX + cardInset,
+            y: contentY + cardInset,
+            width: max(0, profileWidth - cardInset * 2),
+            height: max(0, contentHeight - cardInset * 2)
+        )
+        profileWebView.frame = profileCardView.bounds
+        profileCardView.layer?.shadowPath = CGPath(roundedRect: profileCardView.bounds, cornerWidth: 12, cornerHeight: 12, transform: nil)
         profileDivider.frame = profileWidth > 0 ? NSRect(x: rightX - 1, y: contentY, width: 1, height: contentHeight) : .zero
 
         let mainX = sidebarWidth + gap
@@ -378,7 +399,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         case .tabbed:
             let showingProfileTab = modeControl.selectedSegment == ViewMode.tabbed.rawValue && profileVisible
             collectionScroll.frame = showingProfileTab ? .zero : mainFrame
-            profileWebView.frame = showingProfileTab ? NSRect(x: mainX, y: contentY, width: mainWidth, height: contentHeight) : .zero
+            if showingProfileTab {
+                profileCardView.frame = mainFrame.insetBy(dx: cardInset, dy: cardInset)
+                profileWebView.frame = profileCardView.bounds
+                profileCardView.layer?.shadowPath = CGPath(roundedRect: profileCardView.bounds, cornerWidth: 12, cornerHeight: 12, transform: nil)
+            } else if viewMode == .tabbed {
+                profileCardView.frame = .zero
+                profileWebView.frame = .zero
+            }
             previewImageView.frame = .zero
         case .fullscreen:
             previewImageView.frame = mainFrame.insetBy(dx: 36, dy: 64)
@@ -604,7 +632,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         changeLibraryButton.isHidden = !hasArchive || isViewer
         collectionScroll.isHidden = !hasArchive || isViewer || (viewMode == .tabbed && profileVisible)
         previewImageView.isHidden = !hasArchive || !isViewer
-        profileWebView.isHidden = !hasArchive || (isViewer ? !viewerProfileVisible : (!profileVisible && viewMode != .tabbed))
+        profileCardView.isHidden = !hasArchive || (isViewer ? !viewerProfileVisible : (!profileVisible && viewMode != .tabbed))
         toolbarStrip.isHidden = !hasArchive || isViewer
         searchField.isHidden = !hasArchive || isViewer || (viewMode == .tabbed && profileVisible)
         densityButton.isHidden = searchField.isHidden
