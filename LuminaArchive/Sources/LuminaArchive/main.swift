@@ -51,6 +51,16 @@ private enum Density: Int {
     }
 }
 
+private enum KeyCode {
+    static let leftArrow: UInt16 = 123
+    static let rightArrow: UInt16 = 124
+    static let space: UInt16 = 49
+    static let home: UInt16 = 115
+    static let end: UInt16 = 119
+    static let escape: UInt16 = 53
+    static let return_: UInt16 = 36
+}
+
 private struct ImageAsset: Hashable {
     let url: URL
     let name: String
@@ -425,78 +435,6 @@ private final class SidebarItemView: NSTableCellView {
     }
 }
 
-private final class MarkdownRenderer {
-    static func render(_ markdown: String) -> NSAttributedString {
-        let output = NSMutableAttributedString()
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 4
-        paragraph.paragraphSpacing = 8
-        let body: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 13),
-            .foregroundColor: Palette.text,
-            .paragraphStyle: paragraph
-        ]
-
-        let lines = markdown.components(separatedBy: .newlines)
-        for rawLine in lines {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("# ") {
-                append(String(line.dropFirst(2)), to: output, font: .systemFont(ofSize: 28, weight: .light), color: Palette.text, spacing: 14)
-            } else if line.hasPrefix("## ") {
-                append(line.dropFirst(3).uppercased(), to: output, font: .systemFont(ofSize: 11, weight: .bold), color: Palette.accent, spacing: 8)
-            } else if line.hasPrefix("### ") {
-                append(line.dropFirst(4).uppercased(), to: output, font: .systemFont(ofSize: 11, weight: .semibold), color: Palette.accent, spacing: 6)
-            } else if line.hasPrefix("- ") {
-                let bullet = "• " + String(line.dropFirst(2))
-                output.append(inlineStyled(bullet + "\n", base: body))
-            } else if line.isEmpty {
-                output.append(NSAttributedString(string: "\n", attributes: body))
-            } else {
-                output.append(inlineStyled(line + "\n", base: body))
-            }
-        }
-
-        return output
-    }
-
-    private static func append(_ text: String, to output: NSMutableAttributedString, font: NSFont, color: NSColor, spacing: CGFloat) {
-        let style = NSMutableParagraphStyle()
-        style.paragraphSpacing = spacing
-        output.append(NSAttributedString(
-            string: text + "\n",
-            attributes: [.font: font, .foregroundColor: color, .paragraphStyle: style]
-        ))
-    }
-
-    private static func inlineStyled(_ text: String, base: [NSAttributedString.Key: Any]) -> NSAttributedString {
-        let result = NSMutableAttributedString(string: text.replacingOccurrences(of: "**", with: ""), attributes: base)
-        let scanner = text as NSString
-        var searchRange = NSRange(location: 0, length: scanner.length)
-        var removedBefore = 0
-        while true {
-            let open = scanner.range(of: "**", options: [], range: searchRange)
-            if open.location == NSNotFound { break }
-            let afterOpen = NSRange(location: open.location + 2, length: scanner.length - open.location - 2)
-            let close = scanner.range(of: "**", options: [], range: afterOpen)
-            if close.location == NSNotFound { break }
-
-            let adjustedStart = open.location - removedBefore
-            let adjustedLength = close.location - open.location - 2
-            if adjustedStart >= 0, adjustedStart + adjustedLength <= result.length {
-                result.addAttributes([
-                    .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
-                    .foregroundColor: NSColor(calibratedWhite: 0.08, alpha: 1)
-                ], range: NSRange(location: adjustedStart, length: adjustedLength))
-            }
-            removedBefore += 4
-            let next = close.location + 2
-            if next >= scanner.length { break }
-            searchRange = NSRange(location: next, length: scanner.length - next)
-        }
-        return result
-    }
-}
-
 private enum MarkdownHTMLRenderer {
     static func render(_ markdown: String) -> String {
         let body = blocks(from: markdown)
@@ -731,6 +669,9 @@ private final class MainWindowController: NSWindowController, NSWindowDelegate, 
     private var profileVisible = true
     private var viewerProfileVisible = false
     private var slideshowTimer: Timer?
+    private var sidebarSubtitleCache: [URL: String] = [:]
+    private var searchDebounceWorkItem: DispatchWorkItem?
+    private var suppressCollectionSelectionHandler = false
 
     private let rootView = BackgroundView()
     private let topBar = NSVisualEffectView()
@@ -1135,6 +1076,10 @@ private final class MainWindowController: NSWindowController, NSWindowDelegate, 
     }
 
     private func openArchive(_ url: URL, resetBrowser: Bool = true) {
+        sidebarSubtitleCache.removeAll()
+        searchDebounceWorkItem?.cancel()
+        searchDebounceWorkItem = nil
+
         let rootURL = url.standardizedFileURL
         if resetBrowser {
             browserRoot = FolderNode(url: rootURL)
@@ -1179,17 +1124,24 @@ private final class MainWindowController: NSWindowController, NSWindowDelegate, 
         if node.url == url {
             return node
         }
-        guard url.path.hasPrefix(node.url.path) else {
+        guard isAncestorOrSame(node.url, of: url) else {
             return nil
         }
         node.loadChildren()
         for child in node.children {
-            guard url.path.hasPrefix(child.url.path) else { continue }
+            guard isAncestorOrSame(child.url, of: url) else { continue }
             if let match = findBrowserNode(url, in: child) {
                 return match
             }
         }
         return nil
+    }
+
+    private func isAncestorOrSame(_ ancestor: URL, of url: URL) -> Bool {
+        let ancestorComponents = ancestor.standardizedFileURL.pathComponents
+        let urlComponents = url.standardizedFileURL.pathComponents
+        guard ancestorComponents.count <= urlComponents.count else { return false }
+        return zip(ancestorComponents, urlComponents).allSatisfy(==)
     }
 
     private func loadSelectedModel() {
@@ -1367,6 +1319,15 @@ private final class MainWindowController: NSWindowController, NSWindowDelegate, 
 
     func controlTextDidChange(_ obj: Notification) {
         let query = searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        searchDebounceWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.applySearch(query)
+        }
+        searchDebounceWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: workItem)
+    }
+
+    private func applySearch(_ query: String) {
         let images = currentModel()?.images ?? []
         if query.isEmpty {
             filteredImages = images
@@ -1397,6 +1358,7 @@ private final class MainWindowController: NSWindowController, NSWindowDelegate, 
     }
 
     func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
+        guard !suppressCollectionSelectionHandler else { return }
         guard let indexPath = indexPaths.first else { return }
         selectedImageIndex = indexPath.item
         collectionView.reloadData()
@@ -1466,6 +1428,11 @@ private final class MainWindowController: NSWindowController, NSWindowDelegate, 
     }
 
     private func folderSubtitle(for url: URL) -> String {
+        let url = url.standardizedFileURL
+        if let cached = sidebarSubtitleCache[url] {
+            return cached
+        }
+
         let profileExists = FileManager.default.fileExists(atPath: url.appendingPathComponent("profile.md").path)
         let imageCount = (try? FileManager.default.contentsOfDirectory(
             at: url,
@@ -1474,9 +1441,12 @@ private final class MainWindowController: NSWindowController, NSWindowDelegate, 
         ).filter { sidebarImageExtensions.contains($0.pathExtension.lowercased()) }.count) ?? 0
 
         if imageCount == 0, !profileExists {
+            sidebarSubtitleCache[url] = "Folder"
             return "Folder"
         }
-        return "\(imageCount) images" + (profileExists ? " · profile.md" : "")
+        let subtitle = "\(imageCount) images" + (profileExists ? " · profile.md" : "")
+        sidebarSubtitleCache[url] = subtitle
+        return subtitle
     }
 
     func outlineViewSelectionDidChange(_ notification: Notification) {
@@ -1492,19 +1462,19 @@ private final class MainWindowController: NSWindowController, NSWindowDelegate, 
         }
 
         switch event.keyCode {
-        case 123:
+        case KeyCode.leftArrow:
             advanceImage(-1)
             return true
-        case 124, 49:
+        case KeyCode.rightArrow, KeyCode.space:
             advanceImage(1)
             return true
-        case 115:
+        case KeyCode.home:
             jumpToImage(0)
             return true
-        case 119:
+        case KeyCode.end:
             jumpToImage(max(0, filteredImages.count - 1))
             return true
-        case 53:
+        case KeyCode.escape:
             if slideshowTimer != nil {
                 stopSlideshow()
                 return true
@@ -1513,7 +1483,7 @@ private final class MainWindowController: NSWindowController, NSWindowDelegate, 
                 exitViewer()
                 return true
             }
-        case 36:
+        case KeyCode.return_:
             if viewMode != .fullscreen {
                 openViewer(at: selectedImageIndex)
                 return true
@@ -1531,22 +1501,29 @@ private final class MainWindowController: NSWindowController, NSWindowDelegate, 
 
     private func advanceImage(_ delta: Int) {
         guard !filteredImages.isEmpty else { return }
+        let previousImageIndex = selectedImageIndex
         selectedImageIndex = (selectedImageIndex + delta + filteredImages.count) % filteredImages.count
-        syncImageSelectionAfterKeyboardMove()
+        syncImageSelectionAfterKeyboardMove(previousImageIndex: previousImageIndex)
     }
 
     private func jumpToImage(_ index: Int) {
         guard filteredImages.indices.contains(index) else { return }
+        let previousImageIndex = selectedImageIndex
         selectedImageIndex = index
-        syncImageSelectionAfterKeyboardMove()
+        syncImageSelectionAfterKeyboardMove(previousImageIndex: previousImageIndex)
     }
 
-    private func syncImageSelectionAfterKeyboardMove() {
+    private func syncImageSelectionAfterKeyboardMove(previousImageIndex: Int) {
         if viewMode == .fullscreen {
             loadPreview()
         } else {
+            suppressCollectionSelectionHandler = true
             collectionView.selectItems(at: Set([IndexPath(item: selectedImageIndex, section: 0)]), scrollPosition: .centeredVertically)
-            collectionView.reloadData()
+            suppressCollectionSelectionHandler = false
+            let reloadIndexPaths = [previousImageIndex, selectedImageIndex]
+                .filter { filteredImages.indices.contains($0) }
+                .map { IndexPath(item: $0, section: 0) }
+            collectionView.reloadItems(at: Set(reloadIndexPaths))
         }
         updateStatus()
     }
