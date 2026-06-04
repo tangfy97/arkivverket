@@ -14,41 +14,44 @@ enum MarkdownHTMLRenderer {
               --text: #141412;
               --secondary: #6B6B68;
               --accent: #3C6F6B;
-              --border: rgba(0,0,0,.06);
-              --surface: #FEFDFB;
-              --soft: #F4F3F0;
-              --rule: rgba(0,0,0,.08);
+              --accent-bg: rgba(60,111,107,0.06);
+              --border: rgba(0,0,0,.055);
+              --surface: #FFFFFF;
+              --soft: #F5F3EE;
+              --rule: rgba(0,0,0,.07);
             }
             html, body {
               margin: 0; padding: 0;
               background: var(--surface);
               color: var(--text);
-              font: 15px/1.65 -apple-system, "SF Pro Text", sans-serif;
+              font: 14px/1.7 -apple-system, "SF Pro Text", sans-serif;
               -webkit-font-smoothing: antialiased;
             }
-            body { padding: 48px 44px 64px; box-sizing: border-box; }
+            body { padding: 36px 36px 56px; box-sizing: border-box; }
+
             h1 {
-              font-size: clamp(36px, 6vw, 52px);
-              line-height: 1.05;
+              font-size: 44px;
+              line-height: 1.0;
               font-weight: 200;
-              letter-spacing: -0.02em;
-              margin: 0 0 6px;
+              letter-spacing: -0.025em;
+              margin: 0 0 4px;
               color: var(--text);
             }
             .subtitle {
               font-size: 13px;
               color: var(--secondary);
-              margin: 0 0 40px;
+              margin: 0 0 36px;
               font-weight: 400;
+              letter-spacing: 0.01em;
             }
             h2 {
-              font-size: 9.5px;
+              font-size: 9px;
               font-weight: 700;
-              letter-spacing: 0.14em;
+              letter-spacing: 0.15em;
               text-transform: uppercase;
               color: var(--accent);
-              margin: 40px 0 14px;
-              padding-bottom: 8px;
+              margin: 36px 0 12px;
+              padding-bottom: 7px;
               border-bottom: 1px solid var(--rule);
             }
             h3 {
@@ -57,31 +60,16 @@ enum MarkdownHTMLRenderer {
               letter-spacing: 0.10em;
               text-transform: uppercase;
               color: var(--secondary);
-              margin: 28px 0 10px;
+              margin: 24px 0 8px;
             }
-            p { margin: 0 0 14px; max-width: 62ch; }
-            strong { font-weight: 600; color: var(--text); }
-            ul { margin: 0 0 18px; padding: 0 0 0 0; list-style: none; }
-            li {
-              margin: 5px 0;
-              padding-left: 16px;
-              position: relative;
-            }
-            li::before {
-              content: "–";
-              position: absolute;
-              left: 0;
-              color: var(--accent);
-            }
-            .table-wrap {
-              overflow-x: auto;
-              margin: 16px 0 28px;
-            }
-            table {
-              width: 100%;
-              border-collapse: collapse;
-              font-size: 13px;
-            }
+            p { margin: 0 0 12px; max-width: 58ch; }
+            strong { font-weight: 600; color: #111; }
+            ul { margin: 0 0 16px; padding: 0; list-style: none; }
+            li { padding: 4px 0 4px 16px; position: relative; font-size: 13.5px; }
+            li::before { content: "–"; position: absolute; left: 0; color: var(--accent); }
+
+            .table-wrap { overflow-x: auto; margin: 12px 0 24px; }
+            table { width: 100%; border-collapse: collapse; font-size: 13px; }
             th {
               text-align: left;
               font-size: 9px;
@@ -89,19 +77,26 @@ enum MarkdownHTMLRenderer {
               letter-spacing: 0.10em;
               text-transform: uppercase;
               color: var(--secondary);
-              padding: 0 16px 10px 0;
+              padding: 0 20px 8px 0;
               border-bottom: 1px solid var(--rule);
+              white-space: nowrap;
             }
             td {
-              padding: 9px 16px 9px 0;
+              padding: 8px 20px 8px 0;
               vertical-align: top;
               border-bottom: 1px solid var(--border);
-              color: var(--text);
+              line-height: 1.5;
+            }
+            td:first-child {
+              white-space: nowrap;
+              color: var(--secondary);
+              font-size: 12px;
+              min-width: 64px;
             }
             tr:last-child td { border-bottom: 0; }
             code {
               font-family: ui-monospace, "SF Mono", Menlo, monospace;
-              font-size: 0.88em;
+              font-size: 0.87em;
               background: var(--soft);
               padding: 2px 6px;
               border-radius: 4px;
