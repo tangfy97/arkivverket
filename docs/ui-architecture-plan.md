@@ -1,4 +1,4 @@
-# Phase 4 UI Architecture Plan
+# UI Architecture Plan
 
 Goal: move Arkiv from one manually-laid-out AppKit controller toward native macOS structure without disrupting the browsing workflow.
 

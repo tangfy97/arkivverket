@@ -2,17 +2,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "LuminaArchive",
+    name: "Arkiv",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "LuminaArchive", targets: ["LuminaArchive"])
+        .executable(name: "Arkiv", targets: ["Arkiv"])
     ],
     targets: [
         .executableTarget(
-            name: "LuminaArchive",
-            path: "Sources/LuminaArchive",
+            name: "Arkiv",
+            path: "Sources/Arkiv",
             swiftSettings: [
                 .swiftLanguageMode(.v5)
             ]

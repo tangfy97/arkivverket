@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROJECT="$ROOT/LuminaArchive"
+PROJECT="$ROOT/Arkiv"
 DIST="$ROOT/dist"
 APP="$DIST/Arkiv.app"
 CONTENTS="$APP/Contents"
@@ -18,8 +18,7 @@ swift build --package-path "$PROJECT" -c release
 rm -rf "$APP"
 mkdir -p "$MACOS" "$RESOURCES"
 
-# Binary — renamed to match CFBundleExecutable = Arkiv
-cp "$PROJECT/.build/release/LuminaArchive" "$MACOS/Arkiv"
+cp "$PROJECT/.build/release/Arkiv" "$MACOS/Arkiv"
 
 # Plist & PkgInfo
 cp "$PROJECT/Resources/Info.plist" "$CONTENTS/Info.plist"

@@ -5,5 +5,5 @@ project.xcworkspace/
 xcuserdata/
 dist/
 .build/
-LuminaArchive/.build/
-LuminaArchive/.swiftpm/
+Arkiv/.build/
+Arkiv/.swiftpm/
