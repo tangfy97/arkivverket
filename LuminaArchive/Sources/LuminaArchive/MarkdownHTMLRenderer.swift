@@ -20,6 +20,18 @@ enum MarkdownHTMLRenderer {
               --soft: #F5F3EE;
               --rule: rgba(0,0,0,.07);
             }
+            @media (prefers-color-scheme: dark) {
+              :root {
+                --text: #ECECEA;
+                --secondary: #B7B7B2;
+                --accent: #7ABAB3;
+                --accent-bg: rgba(122,186,179,0.12);
+                --border: rgba(255,255,255,.10);
+                --surface: #28292B;
+                --soft: #36383A;
+                --rule: rgba(255,255,255,.12);
+              }
+            }
             html, body {
               margin: 0; padding: 0;
               background: var(--surface);
@@ -27,7 +39,7 @@ enum MarkdownHTMLRenderer {
               font: 14px/1.7 -apple-system, "SF Pro Text", sans-serif;
               -webkit-font-smoothing: antialiased;
             }
-            body { padding: 36px 36px 56px; box-sizing: border-box; }
+            body { padding: 24px 22px 48px; box-sizing: border-box; }
 
             h1 {
               font-size: 44px;
@@ -62,8 +74,17 @@ enum MarkdownHTMLRenderer {
               color: var(--secondary);
               margin: 24px 0 8px;
             }
-            p { margin: 0 0 12px; max-width: 58ch; }
-            strong { font-weight: 600; color: #111; }
+            p { margin: 0 0 12px; }
+            strong { font-weight: 600; color: var(--text); }
+            a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+            img { display: block; max-width: 100%; height: auto; margin: 16px 0 22px; border-radius: 8px; }
+            blockquote {
+              margin: 12px 0 18px;
+              padding: 8px 0 8px 16px;
+              border-left: 3px solid var(--accent);
+              color: var(--secondary);
+            }
+            hr { border: 0; border-top: 1px solid var(--rule); margin: 26px 0; }
             ul { margin: 0 0 16px; padding: 0; list-style: none; }
             li { padding: 4px 0 4px 16px; position: relative; font-size: 13.5px; }
             li::before { content: "–"; position: absolute; left: 0; color: var(--accent); }
@@ -77,12 +98,12 @@ enum MarkdownHTMLRenderer {
               letter-spacing: 0.10em;
               text-transform: uppercase;
               color: var(--secondary);
-              padding: 0 20px 8px 0;
+              padding: 0 12px 8px 0;
               border-bottom: 1px solid var(--rule);
               white-space: nowrap;
             }
             td {
-              padding: 8px 20px 8px 0;
+              padding: 7px 12px 7px 0;
               vertical-align: top;
               border-bottom: 1px solid var(--border);
               line-height: 1.5;
@@ -91,7 +112,7 @@ enum MarkdownHTMLRenderer {
               white-space: nowrap;
               color: var(--secondary);
               font-size: 12px;
-              min-width: 64px;
+              min-width: 56px;
             }
             tr:last-child td { border-bottom: 0; }
             code {
@@ -169,6 +190,16 @@ enum MarkdownHTMLRenderer {
                 flushList()
                 nextParaIsSubtitle = false
                 html.append("<h3>\(inline(String(line.dropFirst(4))))</h3>")
+            } else if line == "---" || line == "***" {
+                flushParagraph()
+                flushList()
+                nextParaIsSubtitle = false
+                html.append("<hr>")
+            } else if line.hasPrefix("> ") {
+                flushParagraph()
+                flushList()
+                nextParaIsSubtitle = false
+                html.append("<blockquote>\(inline(String(line.dropFirst(2))))</blockquote>")
             } else if line.hasPrefix("- ") {
                 flushParagraph()
                 nextParaIsSubtitle = false
@@ -228,6 +259,16 @@ enum MarkdownHTMLRenderer {
 
     private static func inline(_ text: String) -> String {
         var output = escape(text)
+        output = output.replacingOccurrences(
+            of: #"!\[([^\]]*)\]\(([^)]+)\)"#,
+            with: #"<img src="$2" alt="$1">"#,
+            options: .regularExpression
+        )
+        output = output.replacingOccurrences(
+            of: #"\[([^\]]+)\]\(([^)]+)\)"#,
+            with: #"<a href="$2">$1</a>"#,
+            options: .regularExpression
+        )
         output = output.replacingOccurrences(of: #"`([^`]+)`"#, with: "<code>$1</code>", options: .regularExpression)
         output = output.replacingOccurrences(of: #"\*\*([^*]+)\*\*"#, with: "<strong>$1</strong>", options: .regularExpression)
         return output

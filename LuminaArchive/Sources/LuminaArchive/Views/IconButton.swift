@@ -2,14 +2,20 @@ import AppKit
 
 final class IconButton: NSButton {
     var isActive = false {
-        didSet { needsDisplay = true }
+        didSet {
+            setAccessibilityValue(isActive ? "on" : "off")
+            needsDisplay = true
+        }
     }
 
     init(symbol: String, tooltip: String) {
         super.init(frame: .zero)
         toolTip = tooltip
+        setAccessibilityLabel(tooltip)
+        setAccessibilityValue("off")
         bezelStyle = .regularSquare
         isBordered = false
+        refusesFirstResponder = false
         wantsLayer = true
         setButtonType(.momentaryChange)
         image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)?
@@ -26,6 +32,11 @@ final class IconButton: NSButton {
         let path = NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7)
         (isActive ? Palette.accentSubtle : NSColor.clear).setFill()
         path.fill()
+        if window?.firstResponder === self {
+            Palette.accent.setStroke()
+            path.lineWidth = 2
+            path.stroke()
+        }
 
         let color = isActive ? Palette.accent : Palette.secondary
         let config = NSImage.SymbolConfiguration(paletteColors: [color])
@@ -39,4 +50,6 @@ final class IconButton: NSButton {
             ))
         }
     }
+
+    override var acceptsFirstResponder: Bool { true }
 }

@@ -5,7 +5,12 @@ final class RoundedButton: NSButton {
     var activeFillColor: NSColor = Palette.surface { didSet { needsDisplay = true } }
     var textColor: NSColor = Palette.secondary { didSet { needsDisplay = true } }
     var activeTextColor: NSColor = Palette.text { didSet { needsDisplay = true } }
-    var isActive: Bool = false { didSet { needsDisplay = true } }
+    var isActive: Bool = false {
+        didSet {
+            setAccessibilityValue(isActive ? "on" : "off")
+            needsDisplay = true
+        }
+    }
 
     convenience init(title: String, target: AnyObject?, action: Selector?) {
         self.init(frame: .zero)
@@ -14,9 +19,12 @@ final class RoundedButton: NSButton {
         self.action = action
         bezelStyle = .regularSquare
         isBordered = false
+        refusesFirstResponder = false
         wantsLayer = true
         setButtonType(.momentaryChange)
         font = .systemFont(ofSize: 12, weight: .medium)
+        setAccessibilityLabel(title)
+        setAccessibilityValue("off")
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -28,6 +36,11 @@ final class RoundedButton: NSButton {
         Palette.border.setStroke()
         path.lineWidth = 1
         path.stroke()
+        if window?.firstResponder === self {
+            Palette.accent.setStroke()
+            path.lineWidth = 2
+            path.stroke()
+        }
 
         let foregroundColor = isActive ? activeTextColor : textColor
         if let image {
@@ -53,4 +66,6 @@ final class RoundedButton: NSButton {
             withAttributes: attributes
         )
     }
+
+    override var acceptsFirstResponder: Bool { true }
 }

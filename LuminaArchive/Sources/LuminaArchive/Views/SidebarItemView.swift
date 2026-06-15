@@ -3,30 +3,22 @@ import AppKit
 final class SidebarItemView: NSTableCellView {
     let nameLabel = NSTextField(labelWithString: "")
     let subtitleLabel = NSTextField(labelWithString: "")
-    let cardBg = NSView()
     var isHighlighted = false {
         didSet {
             needsDisplay = true
-            updateCard()
         }
     }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        setAccessibilityElement(true)
 
-        cardBg.wantsLayer = true
-        cardBg.layer?.cornerRadius = 9
-        addSubview(cardBg)
-
-        nameLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        nameLabel.font = .systemFont(ofSize: 12.5, weight: .regular)
         nameLabel.textColor = Palette.text
         nameLabel.lineBreakMode = .byTruncatingTail
-        subtitleLabel.font = .systemFont(ofSize: 11, weight: .regular)
-        subtitleLabel.textColor = Palette.tertiary
+        subtitleLabel.isHidden = true
         addSubview(nameLabel)
-        addSubview(subtitleLabel)
-        updateCard()
     }
 
     required init?(coder: NSCoder) {
@@ -35,38 +27,48 @@ final class SidebarItemView: NSTableCellView {
 
     override var isFlipped: Bool { true }
 
-    private func updateCard() {
-        if isHighlighted {
-            cardBg.layer?.backgroundColor = Palette.card.cgColor
-            cardBg.layer?.shadowColor = NSColor.black.cgColor
-            cardBg.layer?.shadowOpacity = 0.10
-            cardBg.layer?.shadowOffset = CGSize(width: 0, height: -1)
-            cardBg.layer?.shadowRadius = 4
-            nameLabel.textColor = Palette.text
-        } else {
-            cardBg.layer?.backgroundColor = Palette.card.withAlphaComponent(0.45).cgColor
-            cardBg.layer?.shadowOpacity = 0
-            nameLabel.textColor = Palette.text
-        }
-    }
-
     override func layout() {
         super.layout()
-        let inset: CGFloat = 8
-        cardBg.frame = NSRect(x: inset, y: 4, width: bounds.width - inset * 2, height: bounds.height - 8)
-        let textX: CGFloat = inset + 12
-        let textWidth = bounds.width - textX - inset - 12
-        nameLabel.frame = NSRect(x: textX, y: 10, width: textWidth, height: 18)
-        subtitleLabel.frame = NSRect(x: textX, y: 29, width: textWidth, height: 15)
+        let textX: CGFloat = 22
+        let textWidth = bounds.width - textX - 8
+        nameLabel.frame = NSRect(x: textX, y: (bounds.height - 16) / 2, width: textWidth, height: 16)
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard isHighlighted else { return }
-        let barX: CGFloat = 11
-        let bar = NSRect(x: barX, y: 8, width: 3, height: bounds.height - 16)
-        let path = NSBezierPath(roundedRect: bar, xRadius: 1.5, yRadius: 1.5)
-        Palette.accent.setFill()
-        path.fill()
+
+        if isHighlighted {
+            let bgRect = bounds.insetBy(dx: 4, dy: 1)
+            let bgPath = NSBezierPath(roundedRect: bgRect, xRadius: 6, yRadius: 6)
+            Palette.accentSubtle.setFill()
+            bgPath.fill()
+
+            nameLabel.textColor = Palette.accent
+
+            let bar = NSRect(x: 7, y: 6, width: 3, height: bounds.height - 12)
+            let barPath = NSBezierPath(roundedRect: bar, xRadius: 1.5, yRadius: 1.5)
+            Palette.accent.setFill()
+            barPath.fill()
+        } else {
+            nameLabel.textColor = Palette.text
+        }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        if let outlineView = enclosingFolderOutlineView(), outlineView.showContextMenu(for: event) {
+            return
+        }
+        super.rightMouseDown(with: event)
+    }
+
+    private func enclosingFolderOutlineView() -> FolderOutlineView? {
+        var current = superview
+        while let view = current {
+            if let outlineView = view as? FolderOutlineView {
+                return outlineView
+            }
+            current = view.superview
+        }
+        return nil
     }
 }

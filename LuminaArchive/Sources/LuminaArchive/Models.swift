@@ -2,9 +2,9 @@ import CoreGraphics
 import Foundation
 
 enum ViewMode: Int {
-    case split
-    case tabbed
-    case fullscreen
+    case grid
+    case profile
+    case viewer
 }
 
 enum Density: Int {
@@ -40,6 +40,8 @@ enum Density: Int {
 enum KeyCode {
     static let leftArrow: UInt16 = 123
     static let rightArrow: UInt16 = 124
+    static let downArrow: UInt16 = 125
+    static let upArrow: UInt16 = 126
     static let space: UInt16 = 49
     static let home: UInt16 = 115
     static let end: UInt16 = 119
@@ -51,6 +53,10 @@ struct ImageAsset: Hashable {
     let url: URL
     let name: String
     let byteCount: Int64
+
+    var formattedByteCount: String {
+        ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)
+    }
 }
 
 struct ModelFolder: Hashable {

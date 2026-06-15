@@ -38,6 +38,8 @@ final class FolderNode: NSObject {
 }
 
 final class ArchiveStore {
+    private var scanCache: [URL: [ModelFolder]] = [:]
+    private let cacheLock = NSLock()
     private let imageExtensions: Set<String> = [
         "jpg", "jpeg", "png", "heic", "heif", "tif", "tiff", "gif", "webp",
         "bmp", "jp2", "cr2", "cr3", "nef", "arw", "raf", "rw2", "dng"
@@ -45,23 +47,49 @@ final class ArchiveStore {
 
     func scan(_ root: URL) -> [ModelFolder] {
         let root = root.standardizedFileURL
+        if let cached = cachedScan(for: root) {
+            return cached
+        }
+
+        let result: [ModelFolder]
         if isModelFolder(root) || containsImages(root) {
-            return [makeModelFolder(root)]
+            result = [makeModelFolder(root)]
+        } else {
+            let children = immediateDirectories(root)
+            let modelFolders = children
+                .filter { isModelFolder($0) || containsImages($0) }
+                .map(makeModelFolder)
+                .filter { !$0.images.isEmpty || $0.profileURL != nil }
+
+            if modelFolders.isEmpty {
+                result = [makeModelFolder(root)].filter { !$0.images.isEmpty || $0.profileURL != nil }
+            } else {
+                result = modelFolders.sorted {
+                    $0.name.localizedStandardCompare($1.name) == .orderedAscending
+                }
+            }
         }
 
-        let children = immediateDirectories(root)
-        let modelFolders = children
-            .filter { isModelFolder($0) || containsImages($0) }
-            .map(makeModelFolder)
-            .filter { !$0.images.isEmpty || $0.profileURL != nil }
+        cacheScan(result, for: root)
+        return result
+    }
 
-        if modelFolders.isEmpty {
-            return [makeModelFolder(root)].filter { !$0.images.isEmpty || $0.profileURL != nil }
-        }
+    func clearCache() {
+        cacheLock.lock()
+        scanCache.removeAll()
+        cacheLock.unlock()
+    }
 
-        return modelFolders.sorted {
-            $0.name.localizedStandardCompare($1.name) == .orderedAscending
-        }
+    private func cachedScan(for url: URL) -> [ModelFolder]? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        return scanCache[url]
+    }
+
+    private func cacheScan(_ folders: [ModelFolder], for url: URL) {
+        cacheLock.lock()
+        scanCache[url] = folders
+        cacheLock.unlock()
     }
 
     private func isModelFolder(_ url: URL) -> Bool {
