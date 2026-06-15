@@ -2,6 +2,14 @@ import AppKit
 import WebKit
 
 final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollectionViewDataSource, NSCollectionViewDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate, NSSearchFieldDelegate {
+    private static let recentLibrariesKey = "RecentLibraries"
+    private static let lastLibraryKey = "LastLibraryPath"
+    private static let ratingValues = ["--", "-+", "=", "+", "++", "+++"]
+    static var recentLibraryURLs: [URL] {
+        let paths = UserDefaults.standard.stringArray(forKey: recentLibrariesKey) ?? []
+        return paths.map { URL(fileURLWithPath: $0) }
+    }
+
     private let store = ArchiveStore()
     private var browserRoot: FolderNode?
     private var suppressBrowserSelection = false
@@ -10,7 +18,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private var filteredImages: [ImageAsset] = []
     private var selectedModelIndex = 0
     private var selectedImageIndex = 0
-    private var viewMode: ViewMode = .split
+    private var selectedImageIndexes: Set<Int> = []
+    private var viewMode: ViewMode = .grid
     private var density: Density = .spacious
     private var profileVisible = true
     private var viewerProfileVisible = false
@@ -18,16 +27,23 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private var sidebarSubtitleCache: [URL: String] = [:]
     private var searchDebounceWorkItem: DispatchWorkItem?
     private var suppressCollectionSelectionHandler = false
+    private let scanQueue = DispatchQueue(label: "com.arkiv.scan", qos: .userInitiated)
+    private var scanGeneration = 0
+    private var isScanning = false
+    private var archiveMessage: String?
+    private var currentLibraryURL: URL?
+    private var pendingOpenViewerAfterScan = false
+    private var pendingViewerProfileAfterScan = false
 
     private let rootView = BackgroundView()
     private let topBar = NSVisualEffectView()
-    private let modeControl = NSSegmentedControl(labels: ["Split", "Tabbed", "Fullscreen"], trackingMode: .selectOne, target: nil, action: nil)
+    private let modeControl = NSSegmentedControl(labels: ["Grid", "Profile", "Viewer"], trackingMode: .selectOne, target: nil, action: nil)
     private let openButton = RoundedButton(title: "Choose Library", target: nil, action: nil)
     private let densityButton = IconButton(symbol: "square.grid.3x3.fill", tooltip: "Grid density")
     private let slideshowButton = IconButton(symbol: "play.fill", tooltip: "Slideshow")
     private let profileButton = IconButton(symbol: "text.alignleft", tooltip: "Profile")
     private let searchField = NSSearchField()
-    private let sidebar = NSOutlineView()
+    private let sidebar = FolderOutlineView()
     private let sidebarScroll = NSScrollView()
     private let sidebarDivider = NSView()
     private let libraryPathLabel = NSTextField(labelWithString: "No folder selected")
@@ -35,8 +51,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private let toolbarStrip = BackgroundView()
     private let contextNameLabel = NSTextField(labelWithString: "")
     private let contextCountLabel = NSTextField(labelWithString: "")
+    private lazy var ratingControl = NSSegmentedControl(labels: Self.ratingValues, trackingMode: .selectOne, target: nil, action: nil)
+    private let sendToCorpusButton = RoundedButton(title: "Send to Corpus", target: nil, action: nil)
     private let collectionView = DoubleClickCollectionView()
     private let collectionScroll = NSScrollView()
+    private let previewScrollView = NSScrollView()
     private let previewImageView = NSImageView()
     private let viewerTopBar = NSView()
     private let viewerBottomBar = NSView()
@@ -52,7 +71,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private let profileCardView = NSView()
     private let profileWebView = WKWebView()
     private let profileDivider = NSView()
-    private let emptyLabel = NSTextField(labelWithString: "Drop a folder here, or choose one below")
+    private let homeStateView = HomeStateView()
+    private let emptyLabel = NSTextField(labelWithString: "Open or drop an archive folder to begin.")
+    private let loadingIndicator = NSProgressIndicator()
 
     convenience init() {
         let window = NSWindow(
@@ -85,6 +106,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private func setup() {
         guard let window else { return }
         rootView.color = Palette.bg
+        rootView.onFolderDrop = { [weak self] url in
+            self?.openArchive(url)
+        }
+        rootView.onAppearanceChange = { [weak self] in
+            self?.updateDynamicColors()
+        }
         window.contentView = rootView
 
         setupTopBar()
@@ -100,15 +127,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         updateModeButtons()
         updateContentVisibility()
         installKeyMonitor()
+        updateDynamicColors()
 
         let arguments = Array(CommandLine.arguments.dropFirst())
         let shouldOpenViewer = arguments.contains("--viewer")
         let shouldOpenViewerProfile = arguments.contains("--viewer-profile")
+        let shouldSkipRestore = arguments.contains("--no-restore")
         if let argument = arguments.first(where: { !$0.hasPrefix("--") }) {
+            pendingOpenViewerAfterScan = shouldOpenViewer
+            pendingViewerProfileAfterScan = shouldOpenViewerProfile
             openArchive(URL(fileURLWithPath: argument))
-            if shouldOpenViewer, !filteredImages.isEmpty {
-                openViewer(at: selectedImageIndex, showProfile: shouldOpenViewerProfile)
-            }
+        } else if !shouldSkipRestore, let lastPath = UserDefaults.standard.string(forKey: Self.lastLibraryKey) {
+            openArchive(URL(fileURLWithPath: lastPath))
         }
     }
 
@@ -156,12 +186,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         sidebar.addTableColumn(column)
         sidebar.outlineTableColumn = column
         sidebar.headerView = nil
-        sidebar.rowHeight = 60
+        sidebar.rowHeight = 32
         sidebar.intercellSpacing = NSSize(width: 0, height: 0)
         sidebar.backgroundColor = .clear
         sidebar.selectionHighlightStyle = .none
         sidebar.dataSource = self
         sidebar.delegate = self
+        sidebar.contextMenuProvider = { [weak self] row in
+            self?.menuForSidebarRow(row)
+        }
         sidebarScroll.documentView = sidebar
         sidebarScroll.hasVerticalScroller = true
         sidebarScroll.drawsBackground = false
@@ -197,9 +230,31 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         contextNameLabel.lineBreakMode = .byTruncatingTail
         contextCountLabel.font = .systemFont(ofSize: 12, weight: .regular)
         contextCountLabel.textColor = Palette.tertiary
+
+        ratingControl.target = self
+        ratingControl.action = #selector(ratingChanged)
+        ratingControl.segmentStyle = .rounded
+        ratingControl.font = .systemFont(ofSize: 12, weight: .medium)
+        ratingControl.toolTip = "Rate current folder"
+        ratingControl.setAccessibilityLabel("Rating")
+        for index in Self.ratingValues.indices {
+            ratingControl.setToolTip("Rate \(Self.ratingValues[index])", forSegment: index)
+        }
+
+        sendToCorpusButton.target = self
+        sendToCorpusButton.action = #selector(showSendToCorpusMenu(_:))
+        sendToCorpusButton.fillColor = Palette.accent
+        sendToCorpusButton.textColor = .white
+        sendToCorpusButton.activeFillColor = Palette.accent
+        sendToCorpusButton.activeTextColor = .white
+        sendToCorpusButton.toolTip = "Choose how to send selected images to CorpusVault"
+        sendToCorpusButton.setAccessibilityLabel("Send selected images to CorpusVault")
+
         toolbarStrip.addSubview(contextNameLabel)
         toolbarStrip.addSubview(contextCountLabel)
+        toolbarStrip.addSubview(ratingControl)
         rootView.addSubview(toolbarStrip, positioned: .below, relativeTo: searchField)
+        rootView.addSubview(sendToCorpusButton)
     }
 
     private func setupCollection() {
@@ -216,9 +271,22 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         collectionView.keyHandler = { [weak self] event in
             self?.handleKey(event) ?? false
         }
-        collectionView.isSelectable = true
+        collectionView.contextMenuProvider = { [weak self] indexPath in
+            self?.menuForImage(at: indexPath)
+        }
+        collectionView.itemClickHandler = { [weak self] indexPath, commandPressed in
+            self?.collectionClicked(indexPath: indexPath, commandPressed: commandPressed)
+        }
+        collectionView.itemDoubleClickHandler = { [weak self] indexPath in
+            self?.openCollectionItem(at: indexPath)
+        }
+        collectionView.dragSelectionHandler = { [weak self] indexPaths in
+            self?.collectionDragSelected(indexPaths: indexPaths)
+        }
+        collectionView.isSelectable = false
+        collectionView.allowsMultipleSelection = false
         collectionView.backgroundColors = [Palette.bg]
-        collectionView.allowsEmptySelection = false
+        collectionView.allowsEmptySelection = true
         collectionScroll.documentView = collectionView
         collectionScroll.hasVerticalScroller = true
         collectionScroll.drawsBackground = false
@@ -230,7 +298,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         previewImageView.wantsLayer = true
         previewImageView.layer?.backgroundColor = Palette.dark.cgColor
         previewImageView.layer?.cornerRadius = 0
-        rootView.addSubview(previewImageView)
+        previewImageView.menu = makeImageContextMenu()
+
+        previewScrollView.documentView = previewImageView
+        previewScrollView.allowsMagnification = true
+        previewScrollView.minMagnification = 0.2
+        previewScrollView.maxMagnification = 20.0
+        previewScrollView.drawsBackground = false
+        previewScrollView.hasVerticalScroller = false
+        previewScrollView.hasHorizontalScroller = false
+        rootView.addSubview(previewScrollView)
     }
 
     private func setupViewerOverlay() {
@@ -267,9 +344,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         viewerPrevButton.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "Previous")?
             .withSymbolConfiguration(.init(pointSize: 22, weight: .semibold))
         viewerPrevButton.title = ""
+        viewerPrevButton.setAccessibilityLabel("Previous image")
         viewerNextButton.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Next")?
             .withSymbolConfiguration(.init(pointSize: 22, weight: .semibold))
         viewerNextButton.title = ""
+        viewerNextButton.setAccessibilityLabel("Next image")
+        viewerExitButton.setAccessibilityLabel("Exit viewer")
+        viewerProfileButton.setAccessibilityLabel("Profile")
 
         for button in [viewerExitButton, viewerProfileButton, viewerPrevButton, viewerNextButton] {
             button.fillColor = NSColor.black.withAlphaComponent(0.35)
@@ -308,11 +389,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     }
 
     private func setupEmptyState() {
-        emptyLabel.font = .systemFont(ofSize: 16, weight: .medium)
-        emptyLabel.textColor = Palette.secondary
-        emptyLabel.alignment = .center
-        rootView.addSubview(emptyLabel)
-        rootView.addSubview(openButton)
+        homeStateView.onOpenFolder = { [weak self] in
+            self?.openFolder()
+        }
+        homeStateView.onOpenRecent = { [weak self] url in
+            self?.openArchive(url)
+        }
+        rootView.addSubview(homeStateView)
     }
 
     private func installKeyMonitor() {
@@ -322,6 +405,29 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         }
     }
 
+    private func updateDynamicColors() {
+        rootView.color = viewMode == .viewer ? Palette.dark : Palette.bg
+        collectionView.backgroundColors = [Palette.bg]
+        previewImageView.layer?.backgroundColor = Palette.dark.cgColor
+        previewScrollView.backgroundColor = Palette.dark
+        profileCardView.layer?.backgroundColor = Palette.card.cgColor
+        profileWebView.layer?.backgroundColor = Palette.card.cgColor
+        for divider in [sidebarDivider, profileDivider] {
+            divider.layer?.backgroundColor = Palette.border.cgColor
+        }
+        contextNameLabel.textColor = Palette.text
+        contextCountLabel.textColor = Palette.tertiary
+        libraryPathLabel.textColor = Palette.secondary
+        emptyLabel.textColor = Palette.secondary
+        openButton.fillColor = Palette.accent
+        sendToCorpusButton.fillColor = Palette.accent
+        sendToCorpusButton.textColor = .white
+        homeStateView.refreshColors()
+        collectionView.reloadData()
+        sidebar.reloadData()
+        rootView.needsDisplay = true
+    }
+
     func windowDidResize(_ notification: Notification) {
         layoutViews()
     }
@@ -329,10 +435,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private func layoutViews() {
         guard let content = window?.contentView else { return }
         let bounds = content.bounds
-        let isViewer = viewMode == .fullscreen
+        let isViewer = viewMode == .viewer
         let topHeight: CGFloat = isViewer ? 0 : 44
         let statusHeight: CGFloat = 0
-        let sidebarWidth: CGFloat = viewMode == .fullscreen ? 0 : min(270, max(220, bounds.width * 0.18))
+        let sidebarWidth: CGFloat = viewMode == .viewer ? 0 : min(240, max(180, bounds.width * 0.17))
         let profileWidth = currentProfileWidth(for: bounds)
         let gap: CGFloat = 0
 
@@ -342,7 +448,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
         let contentY = statusHeight
         let contentHeight = bounds.height - topHeight - statusHeight
-        let sidebarHeaderHeight: CGFloat = viewMode == .fullscreen ? 0 : 46
+        let sidebarHeaderHeight: CGFloat = viewMode == .viewer ? 0 : 46
         libraryPathLabel.frame = NSRect(x: 16, y: contentY + contentHeight - 32, width: max(80, sidebarWidth - 62), height: 18)
         changeLibraryButton.frame = NSRect(x: max(16, sidebarWidth - 44), y: contentY + contentHeight - 38, width: 30, height: 30)
         sidebarScroll.frame = NSRect(x: 0, y: contentY, width: sidebarWidth, height: max(0, contentHeight - sidebarHeaderHeight))
@@ -362,65 +468,93 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
         let mainX = sidebarWidth + gap
         let mainWidth = bounds.width - sidebarWidth - profileWidth - gap
-        let toolbarHeight: CGFloat = viewMode == .fullscreen ? 0 : 60
+        let toolbarHeight: CGFloat = viewMode == .viewer ? 0 : 52
         let toolbarY = contentY + contentHeight - toolbarHeight
         toolbarStrip.frame = NSRect(x: mainX, y: toolbarY, width: max(0, mainWidth), height: toolbarHeight)
-        contextNameLabel.frame = NSRect(x: 20, y: 20, width: 200, height: 19)
-        contextCountLabel.frame = NSRect(x: 20, y: 6, width: 200, height: 15)
 
         let buttonGap: CGFloat = 6
         let buttonSide: CGFloat = 36
-        let buttonsWidth = buttonSide * 3 + buttonGap * 2
+        let sendWidth: CGFloat = mainWidth < 680 ? 0 : 148
+        let buttonsWidth = buttonSide * 3 + buttonGap * 2 + (sendWidth > 0 ? sendWidth + 10 : 0)
         let buttonsX = mainX + mainWidth - buttonsWidth - 18
-        let searchWidth = min(220, max(160, mainWidth - buttonsWidth - 300))
-        let searchX = mainX + (mainWidth - searchWidth) / 2
-        if searchWidth >= 130 {
-            searchField.frame = NSRect(x: searchX, y: toolbarY + 16, width: searchWidth, height: 28)
+
+        let ratingWidth: CGFloat = mainWidth < 620 ? 226 : 252
+        let ratingMaxX = mainWidth - buttonsWidth - 30
+        let ratingX = max(20, min(232, ratingMaxX - ratingWidth))
+        ratingControl.frame = NSRect(x: ratingX, y: 12, width: max(0, ratingWidth), height: 28)
+
+        let labelWidth = max(0, ratingX - 32)
+        contextNameLabel.frame = NSRect(x: 20, y: 17, width: labelWidth, height: 18)
+        contextCountLabel.frame = NSRect(x: 20, y: 5, width: labelWidth, height: 14)
+
+        let searchMinWidth: CGFloat = 130
+        let searchGap: CGFloat = 12
+        let searchX = mainX + ratingControl.frame.maxX + searchGap
+        let searchMaxWidth = buttonsX - searchX - searchGap
+        let searchWidth = min(220, searchMaxWidth)
+        if searchWidth >= searchMinWidth {
+            searchField.frame = NSRect(x: searchX, y: toolbarY + 12, width: searchWidth, height: 28)
         } else {
             searchField.frame = .zero
         }
-        densityButton.frame = NSRect(x: buttonsX, y: toolbarY + 12, width: buttonSide, height: buttonSide)
-        slideshowButton.frame = NSRect(x: densityButton.frame.maxX + buttonGap, y: toolbarY + 12, width: buttonSide, height: buttonSide)
-        profileButton.frame = NSRect(x: slideshowButton.frame.maxX + buttonGap, y: toolbarY + 12, width: buttonSide, height: buttonSide)
+        if sendWidth > 0 {
+            sendToCorpusButton.frame = NSRect(x: buttonsX, y: toolbarY + 8, width: sendWidth, height: buttonSide)
+            sendToCorpusButton.isHidden = toolbarStrip.isHidden
+        } else {
+            sendToCorpusButton.frame = .zero
+            sendToCorpusButton.isHidden = true
+        }
+        let iconButtonsX = buttonsX + (sendWidth > 0 ? sendWidth + 10 : 0)
+        densityButton.frame = NSRect(x: iconButtonsX, y: toolbarY + 8, width: buttonSide, height: buttonSide)
+        slideshowButton.frame = NSRect(x: densityButton.frame.maxX + buttonGap, y: toolbarY + 8, width: buttonSide, height: buttonSide)
+        profileButton.frame = NSRect(x: slideshowButton.frame.maxX + buttonGap, y: toolbarY + 8, width: buttonSide, height: buttonSide)
 
         let mainFrame = NSRect(x: mainX, y: contentY, width: mainWidth, height: contentHeight)
         switch viewMode {
-        case .split:
+        case .grid:
             collectionScroll.frame = NSRect(x: mainFrame.minX, y: mainFrame.minY, width: mainFrame.width, height: mainFrame.height - toolbarHeight)
-            previewImageView.frame = .zero
-        case .tabbed:
-            let showingProfileTab = modeControl.selectedSegment == ViewMode.tabbed.rawValue && profileVisible
+            previewScrollView.frame = .zero
+        case .profile:
+            let showingProfileTab = modeControl.selectedSegment == ViewMode.profile.rawValue && profileVisible
             collectionScroll.frame = showingProfileTab ? .zero : mainFrame
             if showingProfileTab {
                 profileCardView.frame = mainFrame.insetBy(dx: cardInset, dy: cardInset)
                 profileWebView.frame = profileCardView.bounds
                 profileCardView.layer?.shadowPath = CGPath(roundedRect: profileCardView.bounds, cornerWidth: 12, cornerHeight: 12, transform: nil)
-            } else if viewMode == .tabbed {
+            } else if viewMode == .profile {
                 profileCardView.frame = .zero
                 profileWebView.frame = .zero
             }
-            previewImageView.frame = .zero
-        case .fullscreen:
-            previewImageView.frame = mainFrame.insetBy(dx: 36, dy: 64)
+            previewScrollView.frame = .zero
+        case .viewer:
+            previewScrollView.frame = mainFrame
+            previewImageView.frame = NSRect(origin: .zero, size: mainFrame.size)
             collectionScroll.frame = .zero
         }
 
         layoutViewerOverlay(bounds: bounds, profileWidth: profileWidth)
-        emptyLabel.frame = NSRect(x: mainX + 20, y: contentY + contentHeight / 2 + 8, width: max(260, mainWidth - 40), height: 40)
-        if !emptyLabel.isHidden {
-            openButton.frame = NSRect(x: bounds.midX - 72, y: contentY + contentHeight / 2 - 34, width: 144, height: 32)
+        if !homeStateView.isHidden {
+            if hasHomeOverlayAcrossWindow {
+                homeStateView.frame = NSRect(x: 0, y: contentY, width: bounds.width, height: contentHeight)
+            } else {
+                homeStateView.frame = NSRect(x: mainX, y: contentY, width: mainWidth, height: max(0, contentHeight - toolbarHeight))
+            }
         }
+    }
+
+    private var hasHomeOverlayAcrossWindow: Bool {
+        models.isEmpty || isScanning
     }
 
     private func currentProfileWidth(for bounds: NSRect) -> CGFloat {
-        if viewMode == .fullscreen {
-            return viewerProfileVisible ? min(380, max(320, bounds.width * 0.28)) : 0
+        if viewMode == .viewer {
+            return viewerProfileVisible ? min(460, max(380, bounds.width * 0.30)) : 0
         }
-        return (profileVisible && viewMode != .tabbed) ? min(360, max(300, bounds.width * 0.25)) : 0
+        return (profileVisible && viewMode != .profile) ? min(500, max(420, bounds.width * 0.30)) : 0
     }
 
     private func layoutViewerOverlay(bounds: NSRect, profileWidth: CGFloat) {
-        let isViewer = viewMode == .fullscreen
+        let isViewer = viewMode == .viewer
         let viewerWidth = bounds.width - profileWidth
         viewerTopBar.frame = isViewer ? NSRect(x: 0, y: bounds.height - 56, width: viewerWidth, height: 56) : .zero
         viewerBottomBar.frame = isViewer ? NSRect(x: 0, y: 0, width: viewerWidth, height: 46) : .zero
@@ -473,6 +607,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         searchDebounceWorkItem = nil
 
         let rootURL = url.standardizedFileURL
+        currentLibraryURL = rootURL
+        scanGeneration += 1
+        let generation = scanGeneration
+        isScanning = true
+        archiveMessage = "Scanning \(rootURL.lastPathComponent)..."
+        updateContentVisibility()
+
         if resetBrowser {
             browserRoot = FolderNode(url: rootURL)
             browserRoot?.loadChildren()
@@ -484,15 +625,57 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
             suppressBrowserSelection = false
         }
 
-        let scannedModels = store.scan(rootURL)
-        let displayURL = resetBrowser ? (scannedModels.first?.url ?? rootURL) : rootURL
-        models = displayURL == rootURL ? scannedModels : store.scan(displayURL)
-        selectedModelIndex = 0
-        selectBrowserURL(displayURL)
-        loadSelectedModel()
-        updateContentVisibility()
         libraryPathLabel.stringValue = rootURL.lastPathComponent
-        window?.title = "Arkiv — \(rootURL.lastPathComponent)"
+        window?.title = rootURL.lastPathComponent
+        window?.representedURL = rootURL
+
+        scanQueue.async { [weak self] in
+            guard let self else { return }
+            let rootModels = self.store.scan(rootURL)
+            let displayURL = resetBrowser ? (rootModels.first?.url ?? rootURL) : rootURL
+            let displayModels = displayURL == rootURL ? rootModels : self.store.scan(displayURL)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.scanGeneration == generation else { return }
+                self.finishOpeningArchive(rootURL: rootURL, displayURL: displayURL, models: displayModels)
+            }
+        }
+    }
+
+    private func finishOpeningArchive(rootURL: URL, displayURL: URL, models scannedModels: [ModelFolder]) {
+        isScanning = false
+        models = scannedModels
+        selectedModelIndex = 0
+        archiveMessage = models.isEmpty ? "No images found in \(rootURL.lastPathComponent)." : nil
+        if !models.isEmpty {
+            noteRecentLibrary(rootURL)
+            selectBrowserURL(displayURL)
+            loadSelectedModel()
+            if pendingOpenViewerAfterScan {
+                pendingOpenViewerAfterScan = false
+                openViewer(at: selectedImageIndex, showProfile: pendingViewerProfileAfterScan)
+                pendingViewerProfileAfterScan = false
+            }
+        } else {
+            filteredImages = []
+            selectedImageIndex = 0
+            collectionView.reloadData()
+            loadProfile()
+            updateStatus()
+        }
+        updateContentVisibility()
+    }
+
+    private func noteRecentLibrary(_ url: URL) {
+        let path = url.path
+        var paths = UserDefaults.standard.stringArray(forKey: Self.recentLibrariesKey) ?? []
+        paths.removeAll { $0 == path }
+        paths.insert(path, at: 0)
+        if paths.count > 10 {
+            paths = Array(paths.prefix(10))
+        }
+        UserDefaults.standard.set(paths, forKey: Self.recentLibrariesKey)
+        UserDefaults.standard.set(path, forKey: Self.lastLibraryKey)
+        NSDocumentController.shared.noteNewRecentDocumentURL(url)
     }
 
     private func selectBrowserURL(_ url: URL) {
@@ -539,16 +722,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         searchField.stringValue = ""
         filteredImages = currentModel()?.images ?? []
         selectedImageIndex = 0
+        selectedImageIndexes = filteredImages.isEmpty ? [] : [0]
         collectionView.reloadData()
         if !filteredImages.isEmpty {
-            collectionView.selectItems(at: Set([IndexPath(item: 0, section: 0)]), scrollPosition: .top)
+            syncCollectionSelection()
+            collectionView.scrollToItems(at: Set([IndexPath(item: 0, section: 0)]), scrollPosition: .top)
             ImageCache.shared.warm(Array(filteredImages.prefix(36).map(\.url)), side: density.itemSide)
         }
         window?.makeFirstResponder(nil)
         loadProfile()
         loadPreview()
         updateStatus()
-        emptyLabel.isHidden = !models.isEmpty
     }
 
     private func loadProfile() {
@@ -568,13 +752,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     }
 
     private func loadPreview() {
-        guard viewMode == .fullscreen, let image = currentImage() else {
-            if viewMode != .fullscreen {
+        guard viewMode == .viewer, let image = currentImage() else {
+            if viewMode != .viewer {
                 previewImageView.image = nil
             }
             return
         }
 
+        previewScrollView.magnification = 1.0
         previewImageView.image = nil
         ImageCache.shared.preview(for: image.url) { [weak self] nsImage in
             guard let self, self.currentImage()?.url == image.url else { return }
@@ -585,8 +770,30 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private func updateStatus() {
         contextNameLabel.stringValue = currentModel()?.name ?? ""
         let count = filteredImages.count
-        contextCountLabel.stringValue = count == 0 ? "" : "\(count) images"
+        let query = searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
+            let total = currentModel()?.images.count ?? 0
+            contextCountLabel.stringValue = count == 0 ? "No matches" : "\(count) of \(total) images"
+        } else {
+            let selectedCount = selectedImageIndexes.count
+            if selectedCount > 1 {
+                contextCountLabel.stringValue = "\(selectedCount) selected · \(count) images"
+            } else {
+                contextCountLabel.stringValue = count == 0 ? "No images" : "\(count) images"
+            }
+        }
+        updateSendToCorpusButton()
         updateViewerLabels()
+        updateRatingControl()
+        updateContentVisibility()
+    }
+
+    private func updateSendToCorpusButton() {
+        let count = selectedImageIndexes.filter { filteredImages.indices.contains($0) }.count
+        sendToCorpusButton.isEnabled = count > 0
+        sendToCorpusButton.alphaValue = count > 0 ? 1 : 0.45
+        sendToCorpusButton.title = count > 1 ? "Send \(count) to Corpus" : "Send to Corpus"
+        sendToCorpusButton.needsDisplay = true
     }
 
     private func updateModeButtons() {
@@ -596,11 +803,24 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         slideshowButton.isActive = slideshowTimer != nil
         densityButton.image = NSImage(systemSymbolName: densitySymbolName, accessibilityDescription: "Grid density")?
             .withSymbolConfiguration(.init(pointSize: 14, weight: .regular))
+        densityButton.toolTip = "Grid density: \(density.title)"
+        densityButton.setAccessibilityLabel("Grid density")
+        densityButton.setAccessibilityValue(density.title)
+        slideshowButton.image = NSImage(systemSymbolName: slideshowTimer == nil ? "play.fill" : "pause.fill", accessibilityDescription: "Slideshow")?
+            .withSymbolConfiguration(.init(pointSize: 14, weight: .regular))
+        slideshowButton.toolTip = slideshowTimer == nil ? "Start slideshow" : "Pause slideshow"
+        slideshowButton.setAccessibilityLabel("Slideshow")
+        slideshowButton.setAccessibilityValue(slideshowTimer == nil ? "stopped" : "running")
+        profileButton.setAccessibilityLabel("Profile")
+        profileButton.setAccessibilityValue(profileVisible ? "visible" : "hidden")
+        viewerProfileButton.setAccessibilityLabel("Profile")
+        viewerProfileButton.setAccessibilityValue(viewerProfileVisible ? "visible" : "hidden")
         densityButton.needsDisplay = true
         slideshowButton.needsDisplay = true
         profileButton.needsDisplay = true
         viewerProfileButton.needsDisplay = true
         updateViewerLabels()
+        updateRatingControl()
     }
 
     private var densitySymbolName: String {
@@ -616,40 +836,65 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     private func updateContentVisibility() {
         let hasArchive = !models.isEmpty
-        let isViewer = viewMode == .fullscreen
-        sidebarScroll.isHidden = !hasArchive || isViewer
-        libraryPathLabel.isHidden = !hasArchive || isViewer
-        changeLibraryButton.isHidden = !hasArchive || isViewer
-        collectionScroll.isHidden = !hasArchive || isViewer || (viewMode == .tabbed && profileVisible)
-        previewImageView.isHidden = !hasArchive || !isViewer
-        profileCardView.isHidden = !hasArchive || (isViewer ? !viewerProfileVisible : (!profileVisible && viewMode != .tabbed))
-        toolbarStrip.isHidden = !hasArchive || isViewer
+        let isViewer = viewMode == .viewer
+        sidebarScroll.isHidden = !hasArchive || isViewer || isScanning
+        libraryPathLabel.isHidden = !hasArchive || isViewer || isScanning
+        changeLibraryButton.isHidden = !hasArchive || isViewer || isScanning
+        collectionScroll.isHidden = !hasArchive || isViewer || isScanning || (viewMode == .profile && profileVisible)
+        previewScrollView.isHidden = !hasArchive || !isViewer
+        profileCardView.isHidden = !hasArchive || isScanning || (isViewer ? !viewerProfileVisible : (!profileVisible && viewMode != .profile))
+        toolbarStrip.isHidden = !hasArchive || isViewer || isScanning
         contextNameLabel.isHidden = toolbarStrip.isHidden
         contextCountLabel.isHidden = toolbarStrip.isHidden
-        searchField.isHidden = !hasArchive || isViewer || (viewMode == .tabbed && profileVisible)
+        ratingControl.isHidden = toolbarStrip.isHidden
+        if sendToCorpusButton.frame.isEmpty {
+            sendToCorpusButton.isHidden = true
+        } else {
+            sendToCorpusButton.isHidden = toolbarStrip.isHidden
+        }
+        ratingControl.isEnabled = hasArchive && !isScanning
+        searchField.isHidden = !hasArchive || isViewer || isScanning || (viewMode == .profile && profileVisible)
         densityButton.isHidden = searchField.isHidden
-        slideshowButton.isHidden = !hasArchive || isViewer || (viewMode == .tabbed && profileVisible)
-        profileButton.isHidden = !hasArchive || isViewer
+        slideshowButton.isHidden = !hasArchive || isViewer || (viewMode == .profile && profileVisible)
+        profileButton.isHidden = !hasArchive || isViewer || isScanning
         let profileWidth = window?.contentView.map { currentProfileWidth(for: $0.bounds) } ?? 0
         sidebarDivider.isHidden = !hasArchive || isViewer
         profileDivider.isHidden = !hasArchive || isViewer || profileWidth == 0
-        topBar.isHidden = isViewer
-        modeControl.isHidden = isViewer
-        openButton.isHidden = hasArchive || isViewer
+        topBar.isHidden = isViewer || !hasArchive || isScanning
+        modeControl.isHidden = topBar.isHidden
+        let query = searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let showResultMessage = hasArchive && filteredImages.isEmpty && !isViewer && !(viewMode == .profile && profileVisible)
+        let showStartupMessage = !hasArchive || isScanning
+        openButton.isHidden = true
+        loadingIndicator.isHidden = true
+        emptyLabel.isHidden = true
         for view in [viewerTopBar, viewerBottomBar, viewerTitleLabel, viewerMetaLabel, viewerFileLabel, viewerExitButton, viewerProfileButton, viewerPrevButton, viewerNextButton] {
             view.isHidden = !hasArchive || !isViewer
         }
-        emptyLabel.isHidden = hasArchive
+        homeStateView.isHidden = !(showStartupMessage || showResultMessage)
+        if isScanning {
+            homeStateView.configure(.loading(archiveMessage ?? "Scanning..."))
+        } else if !hasArchive {
+            if let archiveMessage {
+                homeStateView.configure(.message(archiveMessage, showOpenButton: true))
+            } else {
+                homeStateView.configure(.welcome(recents: Self.recentLibraryURLs))
+            }
+        } else if !query.isEmpty {
+            homeStateView.configure(.message("No images match \"\(query)\"", showOpenButton: false))
+        } else {
+            homeStateView.configure(.message("No images found in this folder.", showOpenButton: false))
+        }
         rootView.color = isViewer ? Palette.dark : Palette.bg
         layoutViews()
     }
 
     @objc private func modeChanged() {
-        viewMode = ViewMode(rawValue: modeControl.selectedSegment) ?? .split
-        if viewMode == .tabbed {
-            profileVisible = false
+        viewMode = ViewMode(rawValue: modeControl.selectedSegment) ?? .grid
+        if viewMode == .profile {
+            profileVisible = true
         }
-        if viewMode == .fullscreen {
+        if viewMode == .viewer {
             openViewer(at: selectedImageIndex)
             return
         }
@@ -657,8 +902,27 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         updateContentVisibility()
     }
 
-    @objc private func toggleDensity() {
+    @objc func toggleDensity() {
         density = density.next
+        applyDensity()
+    }
+
+    @objc func useCompactDensity() {
+        density = .compact
+        applyDensity()
+    }
+
+    @objc func useComfortableDensity() {
+        density = .comfortable
+        applyDensity()
+    }
+
+    @objc func useSpaciousDensity() {
+        density = .spacious
+        applyDensity()
+    }
+
+    private func applyDensity() {
         if let layout = collectionView.collectionViewLayout as? NSCollectionViewFlowLayout {
             layout.itemSize = NSSize(width: density.itemSide, height: density.itemSide + 28)
             layout.invalidateLayout()
@@ -667,21 +931,24 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         updateModeButtons()
     }
 
-    @objc private func toggleProfile() {
+    @objc func toggleProfile() {
         profileVisible.toggle()
+        if profileVisible, viewMode == .profile {
+            modeControl.selectedSegment = ViewMode.profile.rawValue
+        }
         updateModeButtons()
         updateContentVisibility()
     }
 
-    @objc private func toggleViewerProfile() {
+    @objc func toggleViewerProfile() {
         viewerProfileVisible.toggle()
         updateModeButtons()
         updateContentVisibility()
     }
 
-    @objc private func exitViewer() {
+    @objc func exitViewer() {
         stopSlideshow()
-        viewMode = .split
+        viewMode = .grid
         viewerProfileVisible = false
         updateModeButtons()
         updateContentVisibility()
@@ -689,15 +956,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         window?.makeFirstResponder(nil)
     }
 
-    @objc private func previousImage() {
+    @objc func previousImage() {
         advanceImage(-1)
     }
 
-    @objc private func nextImage() {
+    @objc func nextImage() {
         advanceImage(1)
     }
 
-    @objc private func toggleSlideshow() {
+    @objc func toggleSlideshow() {
         if slideshowTimer == nil {
             openViewer(at: selectedImageIndex)
             slideshowButton.isActive = true
@@ -707,6 +974,112 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         } else {
             stopSlideshow()
         }
+        updateModeButtons()
+    }
+
+    @objc func enterViewer() {
+        openViewer(at: selectedImageIndex)
+    }
+
+    @objc func focusSearch() {
+        guard !searchField.isHidden else { return }
+        window?.makeFirstResponder(searchField)
+    }
+
+    @objc func copyCurrentImage() {
+        guard let image = currentImage() else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        if let nsImage = NSImage(contentsOf: image.url) {
+            pasteboard.writeObjects([nsImage, image.url as NSURL])
+        } else {
+            pasteboard.writeObjects([image.url as NSURL])
+        }
+    }
+
+    @objc func showSendToCorpusMenu(_ sender: NSButton) {
+        let menu = makeCorpusSendMenu()
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.minY - 4), in: sender)
+    }
+
+    @objc func createCorpusVaultProfileFromSelection() {
+        guard let model = currentModel() else { return }
+        let images = selectedImagesForCorpusExport()
+        guard !images.isEmpty else { return }
+
+        do {
+            let root = try CorpusVaultExporter.shared.exportImages(model: model, images: images)
+            showCorpusVaultExportSuccess(imageCount: images.count, root: root)
+        } catch {
+            showCorpusVaultExportError(error)
+        }
+    }
+
+    @objc func sendSelectedImagesToExistingCorpusProfile() {
+        let images = selectedImagesForCorpusExport()
+        guard !images.isEmpty else { return }
+
+        do {
+            let options = try CorpusVaultExporter.shared.destinationOptions()
+            guard !options.models.isEmpty, !options.groups.isEmpty else {
+                throw CorpusVaultExportError.missingDestination
+            }
+            presentCorpusDestinationPicker(images: images, models: options.models, groups: options.groups)
+        } catch {
+            showCorpusVaultExportError(error)
+        }
+    }
+
+    @objc func createCorpusVaultProfileFromCurrentFolder() {
+        guard let model = currentModel() else { return }
+        exportFolderToCorpusVault(model)
+    }
+
+    @objc func createCorpusVaultProfileFromSidebarFolder(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        let normalizedURL = url.standardizedFileURL
+        let model = models.first { $0.url == normalizedURL } ?? store.scan(normalizedURL).first
+        guard let model else {
+            showCorpusVaultExportError(CorpusVaultExportError.noImages)
+            return
+        }
+        exportFolderToCorpusVault(model)
+    }
+
+    @objc func selectAllImages() {
+        guard !filteredImages.isEmpty else { return }
+        selectedImageIndexes = Set(filteredImages.indices)
+        selectedImageIndex = filteredImages.indices.first ?? 0
+        syncCollectionSelection()
+        collectionView.reloadData()
+        updateStatus()
+    }
+
+    @objc func openRecentLibrary(_ sender: NSMenuItem) {
+        guard let path = sender.representedObject as? String else { return }
+        openArchive(URL(fileURLWithPath: path))
+    }
+
+    @objc func clearRecentLibraries() {
+        UserDefaults.standard.removeObject(forKey: Self.recentLibrariesKey)
+        UserDefaults.standard.removeObject(forKey: Self.lastLibraryKey)
+    }
+
+    @objc func renameFolder(_ sender: NSMenuItem) {
+        guard let oldURL = sender.representedObject as? URL else { return }
+        promptForFolderRename(oldURL)
+    }
+
+    @objc func ratingChanged() {
+        guard Self.ratingValues.indices.contains(ratingControl.selectedSegment),
+              let model = currentModel() else {
+            updateRatingControl()
+            return
+        }
+
+        let rating = Self.ratingValues[ratingControl.selectedSegment]
+        let baseName = folderNameByRemovingRating(from: model.url.lastPathComponent)
+        renameFolder(at: model.url, to: baseName + rating)
     }
 
     private func stopSlideshow() {
@@ -714,6 +1087,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         slideshowTimer = nil
         slideshowButton.isActive = false
         slideshowButton.needsDisplay = true
+        updateModeButtons()
     }
 
     func controlTextDidChange(_ obj: Notification) {
@@ -734,9 +1108,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
             filteredImages = images.filter { $0.name.localizedCaseInsensitiveContains(query) || $0.url.lastPathComponent.localizedCaseInsensitiveContains(query) }
         }
         selectedImageIndex = 0
+        selectedImageIndexes = filteredImages.isEmpty ? [] : [0]
         collectionView.reloadData()
         if !filteredImages.isEmpty {
-            collectionView.selectItems(at: Set([IndexPath(item: 0, section: 0)]), scrollPosition: .top)
+            syncCollectionSelection()
+            collectionView.scrollToItems(at: Set([IndexPath(item: 0, section: 0)]), scrollPosition: .top)
         }
         updateStatus()
     }
@@ -752,16 +1128,65 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
         let item = collectionView.makeItem(withIdentifier: ImageCollectionItem.identifier, for: indexPath)
         guard let imageItem = item as? ImageCollectionItem else { return item }
-        imageItem.configure(asset: filteredImages[indexPath.item], index: indexPath.item, side: density.itemSide, isCurrent: indexPath.item == selectedImageIndex)
+        let isSelected = selectedImageIndexes.contains(indexPath.item)
+        imageItem.configure(asset: filteredImages[indexPath.item], index: indexPath.item, side: density.itemSide, isCurrent: indexPath.item == selectedImageIndex, isSelected: isSelected)
         return imageItem
     }
 
     func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
         guard !suppressCollectionSelectionHandler else { return }
-        guard let indexPath = indexPaths.first else { return }
+    }
+
+    func collectionView(_ collectionView: NSCollectionView, didDeselectItemsAt indexPaths: Set<IndexPath>) {
+        guard !suppressCollectionSelectionHandler else { return }
+    }
+
+    func collectionClicked(indexPath: IndexPath, commandPressed: Bool) {
+        guard filteredImages.indices.contains(indexPath.item) else { return }
         selectedImageIndex = indexPath.item
-        collectionView.reloadData()
+        if commandPressed {
+            if selectedImageIndexes.contains(indexPath.item) {
+                selectedImageIndexes.remove(indexPath.item)
+            } else {
+                selectedImageIndexes.insert(indexPath.item)
+            }
+        } else {
+            selectedImageIndexes = [indexPath.item]
+        }
+        if selectedImageIndexes.isEmpty {
+            selectedImageIndexes = [indexPath.item]
+        }
+        syncCollectionSelection()
+        refreshVisibleCollectionItems()
         updateStatus()
+    }
+
+    func collectionDragSelected(indexPaths: Set<IndexPath>) {
+        let indexes = Set(indexPaths.map(\.item).filter { filteredImages.indices.contains($0) })
+        guard !indexes.isEmpty else { return }
+        selectedImageIndexes = indexes
+        selectedImageIndex = indexes.min() ?? selectedImageIndex
+        syncCollectionSelection()
+        refreshVisibleCollectionItems()
+        updateStatus()
+    }
+
+    private func refreshVisibleCollectionItems() {
+        let visible = collectionView.indexPathsForVisibleItems()
+        guard !visible.isEmpty else { return }
+        for indexPath in visible where filteredImages.indices.contains(indexPath.item) {
+            guard let imageItem = collectionView.item(at: indexPath) as? ImageCollectionItem else { continue }
+            imageItem.updateSelection(
+                isCurrent: indexPath.item == selectedImageIndex,
+                isSelected: selectedImageIndexes.contains(indexPath.item)
+            )
+        }
+    }
+
+    private func syncCollectionSelection() {
+        suppressCollectionSelectionHandler = true
+        collectionView.deselectAll(nil)
+        suppressCollectionSelectionHandler = false
     }
 
     func openCollectionItem(at indexPath: IndexPath) {
@@ -771,7 +1196,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     private func openViewer(at index: Int, showProfile: Bool = false) {
         guard filteredImages.indices.contains(index) else { return }
         selectedImageIndex = index
-        viewMode = .fullscreen
+        viewMode = .viewer
         viewerProfileVisible = showProfile
         updateModeButtons()
         updateContentVisibility()
@@ -780,8 +1205,82 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         window?.makeFirstResponder(collectionView)
     }
 
+    private func menuForImage(at indexPath: IndexPath?) -> NSMenu? {
+        guard let indexPath, filteredImages.indices.contains(indexPath.item) else { return nil }
+        selectImageForContextMenu(at: indexPath.item)
+        return makeImageContextMenu()
+    }
+
+    private func makeImageContextMenu() -> NSMenu {
+        let menu = NSMenu()
+        let copyItem = NSMenuItem(title: "Copy Image", action: #selector(copyCurrentImage), keyEquivalent: "")
+        copyItem.target = self
+        menu.addItem(copyItem)
+        menu.addItem(.separator())
+        appendCorpusSendItems(to: menu)
+        return menu
+    }
+
+    private func makeCorpusSendMenu() -> NSMenu {
+        let menu = NSMenu()
+        appendCorpusSendItems(to: menu)
+        return menu
+    }
+
+    private func appendCorpusSendItems(to menu: NSMenu) {
+        let selectedCount = selectedImagesForCorpusExport().count
+
+        let appendItem = NSMenuItem(
+            title: selectedCount > 1 ? "Add \(selectedCount) Images to Existing CorpusVault Profile..." : "Add Selection to Existing CorpusVault Profile...",
+            action: #selector(sendSelectedImagesToExistingCorpusProfile),
+            keyEquivalent: ""
+        )
+        appendItem.target = self
+        appendItem.isEnabled = selectedCount > 0
+        menu.addItem(appendItem)
+
+        let createSelectionItem = NSMenuItem(
+            title: selectedCount > 1 ? "Create New CorpusVault Profile from \(selectedCount) Images" : "Create New CorpusVault Profile from Selection",
+            action: #selector(createCorpusVaultProfileFromSelection),
+            keyEquivalent: ""
+        )
+        createSelectionItem.target = self
+        createSelectionItem.isEnabled = selectedCount > 0
+        menu.addItem(createSelectionItem)
+
+        menu.addItem(.separator())
+
+        let folderItem = NSMenuItem(
+            title: "Create New CorpusVault Profile from Current Folder",
+            action: #selector(createCorpusVaultProfileFromCurrentFolder),
+            keyEquivalent: ""
+        )
+        folderItem.target = self
+        folderItem.isEnabled = currentModel() != nil
+        menu.addItem(folderItem)
+    }
+
+    private func selectImageForContextMenu(at index: Int) {
+        guard filteredImages.indices.contains(index) else { return }
+        if selectedImageIndexes.contains(index) {
+            selectedImageIndex = index
+            refreshVisibleCollectionItems()
+            updateStatus()
+            return
+        }
+        let previousImageIndex = selectedImageIndex
+        selectedImageIndex = index
+        selectedImageIndexes = [index]
+        syncCollectionSelection()
+        let reloadIndexPaths = [previousImageIndex, selectedImageIndex]
+            .filter { filteredImages.indices.contains($0) }
+            .map { IndexPath(item: $0, section: 0) }
+        collectionView.reloadItems(at: Set(reloadIndexPaths))
+        updateStatus()
+    }
+
     private func updateViewerLabels() {
-        guard let model = currentModel(), currentImage() != nil else {
+        guard let model = currentModel(), let image = currentImage() else {
             viewerTitleLabel.stringValue = ""
             viewerMetaLabel.stringValue = ""
             viewerFileLabel.stringValue = ""
@@ -789,7 +1288,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         }
         viewerTitleLabel.stringValue = model.name
         viewerMetaLabel.stringValue = "\(selectedImageIndex + 1) of \(filteredImages.count)"
-        viewerFileLabel.stringValue = "\(selectedImageIndex + 1)  /  \(filteredImages.count)"
+        viewerFileLabel.stringValue = "\(image.url.lastPathComponent) · \(image.formattedByteCount)"
     }
 
     func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -821,8 +1320,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let view = outlineView.makeView(withIdentifier: identifier, owner: self) as? SidebarItemView ?? SidebarItemView()
         view.identifier = identifier
         guard let node = item as? FolderNode else { return view }
+        let subtitle = folderSubtitle(for: node.url)
         view.nameLabel.stringValue = node.name
-        view.subtitleLabel.stringValue = folderSubtitle(for: node.url)
+        view.subtitleLabel.stringValue = subtitle
+        view.toolTip = subtitle
+        view.setAccessibilityLabel("\(view.nameLabel.stringValue), \(subtitle)")
         view.isHighlighted = outlineView.row(forItem: item) == outlineView.selectedRow
         return view
     }
@@ -850,7 +1352,258 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let row = sidebar.selectedRow
         guard row >= 0, let node = sidebar.item(atRow: row) as? FolderNode else { return }
         openArchive(node.url, resetBrowser: false)
+        refreshSidebarRows()
+    }
+
+    private func menuForSidebarRow(_ row: Int) -> NSMenu? {
+        guard let node = sidebar.item(atRow: row) as? FolderNode else { return nil }
+        guard node.url.path != "/" else { return nil }
+
+        let menu = NSMenu()
+        let renameItem = NSMenuItem(title: "Rename Folder...", action: #selector(renameFolder(_:)), keyEquivalent: "")
+        renameItem.target = self
+        renameItem.representedObject = node.url
+        menu.addItem(renameItem)
+        menu.addItem(.separator())
+        let corpusItem = NSMenuItem(title: "Create CorpusVault Profile from Folder", action: #selector(createCorpusVaultProfileFromSidebarFolder(_:)), keyEquivalent: "")
+        corpusItem.target = self
+        corpusItem.representedObject = node.url
+        menu.addItem(corpusItem)
+        return menu
+    }
+
+    private func promptForFolderRename(_ oldURL: URL) {
+        let alert = NSAlert()
+        alert.messageText = "Rename Folder"
+        alert.informativeText = oldURL.path
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        input.stringValue = oldURL.lastPathComponent
+        input.selectText(nil)
+        alert.accessoryView = input
+
+        let completion: (NSApplication.ModalResponse) -> Void = { [weak self, weak input] response in
+            guard response == .alertFirstButtonReturn, let input else { return }
+            self?.renameFolder(at: oldURL, to: input.stringValue)
+        }
+
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            completion(alert.runModal())
+        }
+    }
+
+    private func renameFolder(at oldURL: URL, to proposedName: String) {
+        let newName = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isValidFolderName(newName) else {
+            showRenameError("Use a folder name that is not empty and does not contain '/'.")
+            return
+        }
+
+        let oldURL = oldURL.standardizedFileURL
+        guard newName != oldURL.lastPathComponent else { return }
+
+        let newURL = oldURL.deletingLastPathComponent().appendingPathComponent(newName).standardizedFileURL
+        guard !FileManager.default.fileExists(atPath: newURL.path) else {
+            showRenameError("A folder named \"\(newName)\" already exists.")
+            return
+        }
+
+        do {
+            try FileManager.default.moveItem(at: oldURL, to: newURL)
+        } catch {
+            showRenameError(error.localizedDescription)
+            return
+        }
+
+        store.clearCache()
+        sidebarSubtitleCache.removeAll()
+        rebuildBrowserTree(afterRenaming: oldURL, to: newURL)
+        openArchive(newURL, resetBrowser: false)
+    }
+
+    private func updateRatingControl() {
+        guard let name = currentModel()?.url.lastPathComponent,
+              let rating = ratingSuffix(in: name),
+              let index = Self.ratingValues.firstIndex(of: rating) else {
+            ratingControl.selectedSegment = -1
+            return
+        }
+        ratingControl.selectedSegment = index
+    }
+
+    private func folderNameByRemovingRating(from name: String) -> String {
+        guard let rating = ratingSuffix(in: name) else { return name }
+        return String(name.dropLast(rating.count))
+    }
+
+    private func ratingSuffix(in name: String) -> String? {
+        for rating in Self.ratingValues.sorted(by: { $0.count > $1.count }) {
+            if name.hasSuffix(rating) {
+                return rating
+            }
+        }
+        return nil
+    }
+
+    private func isValidFolderName(_ name: String) -> Bool {
+        !name.isEmpty && name != "." && name != ".." && !name.contains("/")
+    }
+
+    private func rebuildBrowserTree(afterRenaming oldURL: URL, to newURL: URL) {
+        let oldRootURL = browserRoot?.url.standardizedFileURL
+        let rootURL = oldRootURL == oldURL ? newURL : (oldRootURL ?? newURL)
+        browserRoot = FolderNode(url: rootURL)
+        browserRoot?.loadChildren()
+
+        suppressBrowserSelection = true
         sidebar.reloadData()
+        if let browserRoot {
+            sidebar.expandItem(browserRoot)
+        }
+        suppressBrowserSelection = false
+        selectBrowserURL(newURL)
+    }
+
+    private func showRenameError(_ message: String) {
+        updateRatingControl()
+        let alert = NSAlert()
+        alert.messageText = "Could Not Rename Folder"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        if let window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+    }
+
+    private func selectedImagesForCorpusExport() -> [ImageAsset] {
+        let selected = selectedImageIndexes
+            .sorted()
+            .compactMap { filteredImages.indices.contains($0) ? filteredImages[$0] : nil }
+        if !selected.isEmpty {
+            return selected
+        }
+        return currentImage().map { [$0] } ?? []
+    }
+
+    private func presentCorpusDestinationPicker(
+        images: [ImageAsset],
+        models: [CorpusVaultModelChoice],
+        groups: [CorpusVaultGroupChoice]
+    ) {
+        let modelPopup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 320, height: 28), pullsDown: false)
+        for model in models {
+            modelPopup.addItem(withTitle: model.name)
+            modelPopup.lastItem?.representedObject = model.id
+            modelPopup.lastItem?.toolTip = model.id
+        }
+
+        let groupPopup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 320, height: 28), pullsDown: false)
+        for group in groups {
+            groupPopup.addItem(withTitle: group.name)
+            groupPopup.lastItem?.representedObject = group.id
+            groupPopup.lastItem?.toolTip = group.folder
+        }
+
+        let modelLabel = NSTextField(labelWithString: "Corpus model")
+        modelLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        let groupLabel = NSTextField(labelWithString: "Pose group")
+        groupLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+
+        let stack = NSStackView(views: [modelLabel, modelPopup, groupLabel, groupPopup])
+        stack.orientation = .vertical
+        stack.spacing = 8
+        stack.alignment = .leading
+        stack.edgeInsets = NSEdgeInsets(top: 4, left: 0, bottom: 0, right: 0)
+        stack.frame = NSRect(x: 0, y: 0, width: 340, height: 112)
+
+        let alert = NSAlert()
+        alert.messageText = "Send to CorpusVault"
+        alert.informativeText = "Append \(images.count) selected image\(images.count == 1 ? "" : "s") to an existing model."
+        alert.alertStyle = .informational
+        alert.accessoryView = stack
+        alert.addButton(withTitle: "Send")
+        alert.addButton(withTitle: "Cancel")
+
+        let completion: (NSApplication.ModalResponse) -> Void = { [weak self, weak modelPopup, weak groupPopup] response in
+            guard response == .alertFirstButtonReturn else { return }
+            guard let modelID = modelPopup?.selectedItem?.representedObject as? String,
+                  let groupID = groupPopup?.selectedItem?.representedObject as? String else {
+                self?.showCorpusVaultExportError(CorpusVaultExportError.missingDestination)
+                return
+            }
+            self?.appendImagesToCorpusVault(images, modelID: modelID, groupID: groupID)
+        }
+
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            completion(alert.runModal())
+        }
+    }
+
+    private func appendImagesToCorpusVault(_ images: [ImageAsset], modelID: String, groupID: String) {
+        do {
+            let root = try CorpusVaultExporter.shared.appendImages(images, toModelID: modelID, groupID: groupID)
+            showCorpusVaultAppendSuccess(imageCount: images.count, root: root)
+        } catch {
+            showCorpusVaultExportError(error)
+        }
+    }
+
+    private func exportFolderToCorpusVault(_ model: ModelFolder) {
+        do {
+            let root = try CorpusVaultExporter.shared.exportFolder(model: model)
+            showCorpusVaultExportSuccess(imageCount: model.images.count, root: root)
+        } catch {
+            showCorpusVaultExportError(error)
+        }
+    }
+
+    private func showCorpusVaultAppendSuccess(imageCount: Int, root: URL) {
+        let alert = NSAlert()
+        alert.messageText = "Sent to CorpusVault"
+        alert.informativeText = "Appended \(imageCount) image\(imageCount == 1 ? "" : "s") into \(root.path)."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        if let window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+    }
+
+    private func showCorpusVaultExportSuccess(imageCount: Int, root: URL) {
+        let alert = NSAlert()
+        alert.messageText = "Created CorpusVault Profile"
+        alert.informativeText = "Imported \(imageCount) image\(imageCount == 1 ? "" : "s") into \(root.path)."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        if let window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+    }
+
+    private func showCorpusVaultExportError(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "Could Not Create CorpusVault Profile"
+        alert.informativeText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        if let window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
     }
 
     private func handleKey(_ event: NSEvent) -> Bool {
@@ -865,6 +1618,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         case KeyCode.rightArrow, KeyCode.space:
             advanceImage(1)
             return true
+        case KeyCode.upArrow:
+            advanceSidebarSelection(-1)
+            return true
+        case KeyCode.downArrow:
+            advanceSidebarSelection(1)
+            return true
         case KeyCode.home:
             jumpToImage(0)
             return true
@@ -876,12 +1635,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
                 stopSlideshow()
                 return true
             }
-            if viewMode == .fullscreen {
+            if viewMode == .viewer {
                 exitViewer()
                 return true
             }
         case KeyCode.return_:
-            if viewMode != .fullscreen {
+            if viewMode != .viewer {
                 openViewer(at: selectedImageIndex)
                 return true
             }
@@ -903,6 +1662,44 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         syncImageSelectionAfterKeyboardMove(previousImageIndex: previousImageIndex)
     }
 
+    private func advanceSidebarSelection(_ delta: Int) {
+        guard sidebar.numberOfRows > 0 else { return }
+        let selectableRows = sidebarSelectableRows()
+        guard !selectableRows.isEmpty else { return }
+
+        let currentRow = sidebar.selectedRow
+        let currentPosition = selectableRows.firstIndex(of: currentRow)
+        let nextPosition: Int
+        if let currentPosition {
+            nextPosition = min(max(currentPosition + delta, 0), selectableRows.count - 1)
+        } else {
+            nextPosition = delta > 0 ? 0 : selectableRows.count - 1
+        }
+
+        let nextRow = selectableRows[nextPosition]
+        guard nextRow != currentRow else { return }
+        sidebar.selectRowIndexes(IndexSet(integer: nextRow), byExtendingSelection: false)
+        sidebar.scrollRowToVisible(nextRow)
+        refreshSidebarRows()
+    }
+
+    private func sidebarSelectableRows() -> [Int] {
+        let rows = Array(0..<sidebar.numberOfRows)
+        guard let browserRoot, rows.count > 1 else { return rows }
+        return rows.filter { row in
+            guard let node = sidebar.item(atRow: row) as? FolderNode else { return false }
+            return node !== browserRoot
+        }
+    }
+
+    private func refreshSidebarRows() {
+        guard sidebar.numberOfRows > 0 else { return }
+        sidebar.reloadData(
+            forRowIndexes: IndexSet(integersIn: 0..<sidebar.numberOfRows),
+            columnIndexes: IndexSet(integer: 0)
+        )
+    }
+
     private func jumpToImage(_ index: Int) {
         guard filteredImages.indices.contains(index) else { return }
         let previousImageIndex = selectedImageIndex
@@ -911,16 +1708,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     }
 
     private func syncImageSelectionAfterKeyboardMove(previousImageIndex: Int) {
-        if viewMode == .fullscreen {
+        if viewMode == .viewer {
             loadPreview()
         } else {
-            suppressCollectionSelectionHandler = true
-            collectionView.selectItems(at: Set([IndexPath(item: selectedImageIndex, section: 0)]), scrollPosition: .centeredVertically)
-            suppressCollectionSelectionHandler = false
-            let reloadIndexPaths = [previousImageIndex, selectedImageIndex]
-                .filter { filteredImages.indices.contains($0) }
-                .map { IndexPath(item: $0, section: 0) }
-            collectionView.reloadItems(at: Set(reloadIndexPaths))
+            selectedImageIndexes = [selectedImageIndex]
+            syncCollectionSelection()
+            collectionView.scrollToItems(at: Set([IndexPath(item: selectedImageIndex, section: 0)]), scrollPosition: .centeredVertically)
+            refreshVisibleCollectionItems()
         }
         updateStatus()
     }
